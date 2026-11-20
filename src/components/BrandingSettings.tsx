@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Check,
   Database,
   Download,
+  FolderOpen,
   HardDrive,
   RotateCcw,
+  Save,
   ShieldCheck,
   Upload,
 } from 'lucide-react';
@@ -14,6 +16,12 @@ import {
   estimateStringBytes,
   formatBytes,
 } from '../utils/mediaUtils';
+import { buildPortableExportPackage } from '../db/localDb';
+import {
+  getSavedDirectoryName,
+  pickAndSaveLocalDirectory,
+  saveFileToChosenDirectory,
+} from '../utils/localStorageDirectory';
 import { BrandMark } from './BrandMark';
 
 interface BrandingSettingsProps {
@@ -38,10 +46,41 @@ export function BrandingSettings({
   const [notice, setNotice] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [chosenLocalDir, setChosenLocalDir] = useState<string | null>(getSavedDirectoryName());
+  const [isSavingLocalDir, setIsSavingLocalDir] = useState(false);
+
+  useEffect(() => {
+    setChosenLocalDir(getSavedDirectoryName());
+  }, []);
 
   const flashNotice = (msg: string) => {
     setNotice(msg);
     window.setTimeout(() => setNotice(null), 3500);
+  };
+
+  const handlePickDirectory = async () => {
+    const res = await pickAndSaveLocalDirectory();
+    if (res.success) {
+      setChosenLocalDir(res.dirName);
+      flashNotice(`Đã kết nối thành công với thư mục máy tính: "${res.dirName}".`);
+    } else if (res.error) {
+      flashNotice(res.error);
+    }
+  };
+
+  const handleSaveToChosenDirectory = async () => {
+    setIsSavingLocalDir(true);
+    try {
+      const pkg = await buildPortableExportPackage(decks, cards, settings);
+      const jsonContent = JSON.stringify(pkg, null, 2);
+      const filename = `tieng-anh-thay-phuc-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const res = await saveFileToChosenDirectory(filename, jsonContent);
+      flashNotice(res.message);
+    } catch (err: unknown) {
+      flashNotice(`Lỗi lưu tệp: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSavingLocalDir(false);
+    }
   };
 
   const handleLogoUpload = async (file: File) => {
@@ -295,8 +334,45 @@ export function BrandingSettings({
               </div>
             </div>
 
+            {/* Local Computer Directory Picker */}
+            <div className="pt-4 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <FolderOpen className="w-4 h-4 text-[#15803d]" />
+                  Thư mục lưu trữ trên máy tính:
+                </span>
+                <span className="text-[11px] font-mono font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 truncate max-w-[200px]" title={chosenLocalDir || 'Chưa chọn'}>
+                  {chosenLocalDir ? `📁 ${chosenLocalDir}` : 'Mặc định (IndexedDB)'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handlePickDirectory}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-300 bg-[#ecfdf5] hover:bg-[#dcfce7] text-[#15803d] text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Chọn thư mục máy tính...
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isSavingLocalDir}
+                  onClick={handleSaveToChosenDirectory}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {isSavingLocalDir ? 'Đang lưu...' : 'Lưu ngay vào thư mục'}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 italic">
+                💡 Dữ liệu bài giảng sẽ được ghi trực tiếp vào ổ đĩa của máy tính (không qua hộp thoại download của trình duyệt).
+              </p>
+            </div>
+
             {/* Export / Import Portable JSON */}
-            <div className="space-y-3">
+            <div className="space-y-3 pt-2">
               <button
                 type="button"
                 disabled={isExporting}

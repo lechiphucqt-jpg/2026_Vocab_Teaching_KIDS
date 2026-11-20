@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, GraduationCap } from 'lucide-react';
 
 interface BrandMarkProps {
   logoDataUrl: string | null;
@@ -11,15 +11,15 @@ export function BrandMark({ logoDataUrl, size = 'md' }: BrandMarkProps) {
 
   const dims =
     size === 'sm'
-      ? 'w-7 h-7 rounded-md'
+      ? 'w-7 h-7 rounded-full'
       : size === 'lg'
-        ? 'w-14 h-14 rounded-xl'
-        : 'w-9 h-9 rounded-lg';
+        ? 'w-14 h-14 rounded-full'
+        : 'w-10 h-10 rounded-full';
 
   if (logoDataUrl && !failed) {
     return (
       <div
-        className={`${dims} shrink-0 overflow-hidden bg-white border border-slate-200 flex items-center justify-center`}
+        className={`${dims} shrink-0 overflow-hidden bg-white border border-emerald-200 flex items-center justify-center shadow-2xs`}
       >
         <img
           src={logoDataUrl}
@@ -34,15 +34,15 @@ export function BrandMark({ logoDataUrl, size = 'md' }: BrandMarkProps) {
 
   return (
     <div
-      className={`${dims} shrink-0 bg-[#0284C7] text-white flex items-center justify-center font-display font-bold tracking-tight`}
+      className={`${dims} shrink-0 bg-gradient-to-tr from-[#15803d] to-[#10b981] border border-emerald-300 text-white flex items-center justify-center font-display font-bold tracking-tight shadow-2xs`}
       aria-hidden="true"
     >
       {size === 'sm' ? (
-        <BookOpen className="w-4 h-4" />
+        <BookOpen className="w-3.5 h-3.5" />
       ) : size === 'lg' ? (
-        <span className="text-xl">TP</span>
+        <GraduationCap className="w-7 h-7" />
       ) : (
-        <span className="text-sm">TP</span>
+        <GraduationCap className="w-5 h-5 text-white" />
       )}
     </div>
   );

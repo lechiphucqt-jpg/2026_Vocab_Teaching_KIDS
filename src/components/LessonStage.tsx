@@ -12,6 +12,7 @@ import {
   Volume2,
   Mic,
   Gamepad2,
+  Sparkles,
 } from 'lucide-react';
 import type { BrandSettings, LessonDeck, NavTab, VocabCard } from '../types/edtech';
 import { playClassroomSfx, speakVocabulary } from '../utils/mediaUtils';
@@ -53,7 +54,10 @@ export function LessonStage({
 
   const activeDeck = decks.find((d) => d.id === selectedDeckId) ?? decks[0];
   const [activeIndex, setActiveIndex] = useState(0);
-  const [showMeaning, setShowMeaning] = useState(true);
+
+  // Requirement 1: English word revealed after clicking the image; Vietnamese has a separate button
+  const [showEnglishWord, setShowEnglishWord] = useState(false);
+  const [showMeaning, setShowMeaning] = useState(false);
   const [showExample, setShowExample] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [autoPlay, setAutoPlay] = useState(false);
@@ -65,6 +69,12 @@ export function LessonStage({
 
   const safeIndex = deckCards.length > 0 ? Math.min(activeIndex, deckCards.length - 1) : 0;
   const currentCard = deckCards[safeIndex];
+
+  // Reset reveal states when switching cards
+  useEffect(() => {
+    setShowEnglishWord(false);
+    setShowMeaning(false);
+  }, [safeIndex, selectedDeckId]);
 
   const handleSpeakCard = useCallback(
     (card: VocabCard | undefined, speakSentence = false) => {
@@ -80,6 +90,18 @@ export function LessonStage({
     },
     [settings.speechRate, settings.voiceAccent]
   );
+
+  const handleImageClick = useCallback(() => {
+    if (!currentCard) return;
+    if (!showEnglishWord) {
+      setShowEnglishWord(true);
+      playClassroomSfx('flip', settings.soundEffectsEnabled);
+      handleSpeakCard(currentCard, false);
+    } else {
+      // Re-pronounce when clicking again
+      handleSpeakCard(currentCard, false);
+    }
+  }, [currentCard, showEnglishWord, settings.soundEffectsEnabled, handleSpeakCard]);
 
   const handleNext = useCallback(() => {
     if (deckCards.length === 0) return;
@@ -106,8 +128,12 @@ export function LessonStage({
         handlePrev();
       } else if (e.key === ' ') {
         e.preventDefault();
-        handleSpeakCard(currentCard, false);
-      } else if (e.key.toLowerCase() === 'm') {
+        if (!showEnglishWord) {
+          handleImageClick();
+        } else {
+          handleSpeakCard(currentCard, false);
+        }
+      } else if (e.key.toLowerCase() === 'm' || e.key.toLowerCase() === 'v') {
         setShowMeaning((v) => !v);
       } else if (e.key === 'Escape' && isPresentationMode) {
         onTogglePresentationMode();
@@ -115,27 +141,29 @@ export function LessonStage({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentCard, handleNext, handlePrev, handleSpeakCard, isPresentationMode, onTogglePresentationMode]);
+  }, [currentCard, handleNext, handlePrev, handleSpeakCard, handleImageClick, isPresentationMode, onTogglePresentationMode, showEnglishWord]);
 
   // Auto-play slideshow timer
   useEffect(() => {
     if (!autoPlay || deckCards.length === 0) return;
+    setShowEnglishWord(true);
     handleSpeakCard(deckCards[safeIndex], false);
     const timer = window.setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % deckCards.length);
-    }, 4200);
+    }, 4500);
     return () => window.clearInterval(timer);
   }, [autoPlay, deckCards, safeIndex, handleSpeakCard]);
 
-  // Distraction-free Classroom Projection Overlay
+  // ---------------- CLASSROOM PROJECTION OVERLAY ----------------
   if (isPresentationMode && currentCard) {
     return (
       <div className="fixed inset-0 z-50 bg-[#F8FAFC] flex flex-col">
-        <div className="flex items-center justify-between gap-6 px-8 py-4 bg-white border-b border-slate-200">
+        {/* Presentation Header */}
+        <div className="flex items-center justify-between gap-6 px-8 py-4 bg-white border-b border-emerald-100 shadow-2xs">
           <div className="flex items-center gap-3 min-w-0">
             <BrandMark logoDataUrl={settings.customLogoDataUrl} size="md" />
             <div className="flex items-baseline gap-3 min-w-0">
-              <span className="font-display font-bold text-lg text-slate-900 whitespace-nowrap">
+              <span className="font-display font-bold text-lg text-[#15803d] whitespace-nowrap">
                 {settings.brandTitle}
               </span>
               <span className="text-sm text-slate-500 truncate hidden sm:inline">
@@ -145,18 +173,20 @@ export function LessonStage({
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
+            {/* Separate button to reveal Vietnamese meaning */}
             <button
               type="button"
               onClick={() => setShowMeaning((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#86efac] bg-[#ecfdf5] hover:bg-[#dcfce7] text-sm font-bold text-[#15803d] transition-colors cursor-pointer"
             >
               {showMeaning ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              {showMeaning ? 'Ẩn nghĩa Việt' : 'Hiện nghĩa Việt'}
+              {showMeaning ? 'Ẩn nghĩa Việt' : 'Click xem nghĩa tiếng Việt'}
             </button>
+
             <button
               type="button"
               onClick={onTogglePresentationMode}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition-colors whitespace-nowrap cursor-pointer"
             >
               <Minimize2 className="w-4 h-4" />
               Thoát trình chiếu
@@ -164,61 +194,119 @@ export function LessonStage({
           </div>
         </div>
 
+        {/* Presentation Body */}
         <div className="flex-1 flex items-center justify-center p-6 lg:p-10 overflow-y-auto">
-          <div className="w-full max-w-6xl bg-white border border-slate-200 rounded-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 items-stretch">
-            <div className="lg:col-span-7 bg-slate-100 relative min-h-[340px] lg:min-h-[540px]">
+          <div className="w-full max-w-6xl bg-white border border-slate-200 rounded-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 items-stretch shadow-lg">
+            {/* Left: Image with Click-to-Reveal */}
+            <div
+              onClick={handleImageClick}
+              className="lg:col-span-7 bg-slate-100 relative min-h-[340px] lg:min-h-[540px] cursor-pointer group select-none"
+              title={showEnglishWord ? 'Nhấn để nghe lại phát âm' : 'Nhấn vào ảnh để hiện từ tiếng Anh'}
+            >
               <ResilientImage
                 src={currentCard.imageDataUrl}
                 alt={currentCard.word}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102"
               />
+
+              {!showEnglishWord && (
+                <div className="absolute inset-0 bg-black/15 group-hover:bg-black/25 flex items-end justify-center pb-8 transition-all">
+                  <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/95 text-slate-900 font-bold text-sm sm:text-base shadow-lg group-hover:scale-105 transition-transform">
+                    <span>👆 Nhấn vào bức ảnh để hiện từ tiếng Anh</span>
+                  </span>
+                </div>
+              )}
             </div>
 
+            {/* Right: Vocabulary Content (Refer to Image 1) */}
             <div className="lg:col-span-5 p-8 lg:p-10 flex flex-col justify-between gap-8">
-              <div className="space-y-5">
-                <div className="text-sm text-slate-500 tabular-nums">
-                  {activeDeck?.subtitle} · Từ {safeIndex + 1} / {deckCards.length}
+              <div className="space-y-6">
+                <div className="text-sm font-medium text-slate-500 tabular-nums">
+                  {activeDeck?.subtitle || activeDeck?.title} · Từ {safeIndex + 1} / {deckCards.length}
                 </div>
 
-                <div>
-                  <h2 className="font-display font-bold text-5xl lg:text-6xl tracking-tight text-slate-900">
-                    {currentCard.word}
-                  </h2>
-                  <p className="mt-2 font-mono text-xl text-[#0284C7]">
-                    {currentCard.phonetic}
-                  </p>
-                  {currentCard.syllables && (
-                    <p className="mt-1.5 text-base text-slate-500">
-                      Tách âm: <span className="font-medium text-slate-700">{currentCard.syllables}</span>
+                {/* English Word Section: Hidden until image is clicked */}
+                {showEnglishWord ? (
+                  <div className="space-y-2 animate-in fade-in duration-300">
+                    <h2 className="font-display font-extrabold text-5xl lg:text-6xl tracking-tight text-slate-900">
+                      {currentCard.word}
+                    </h2>
+                    <p className="font-mono text-2xl text-[#0284C7] font-semibold">
+                      {currentCard.phonetic}
                     </p>
+                    {currentCard.syllables && (
+                      <p className="text-base text-slate-600 font-medium">
+                        Tách âm: <span className="font-bold text-slate-800">{currentCard.syllables}</span>
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleImageClick}
+                    className="w-full p-6 rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/60 hover:bg-emerald-100/70 transition-all text-center cursor-pointer group"
+                  >
+                    <div className="text-3xl mb-1 group-hover:scale-110 transition-transform">🖼️ 👆</div>
+                    <div className="font-bold text-lg text-emerald-800">
+                      Nhấn vào bức ảnh để hiện từ tiếng Anh
+                    </div>
+                    <div className="text-xs text-emerald-600 mt-1">
+                      (Đoán từ trước cùng các bạn trong lớp nhé!)
+                    </div>
+                  </button>
+                )}
+
+                {/* Vietnamese Meaning Section: Separate Click Button (Requirement 1) */}
+                <div className="pt-5 border-t border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      Nghĩa tiếng Việt
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowMeaning((v) => !v)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-[#86efac] bg-[#ecfdf5] hover:bg-[#dcfce7] text-xs font-bold text-[#15803d] transition-colors cursor-pointer"
+                    >
+                      {showMeaning ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{showMeaning ? 'Ẩn nghĩa' : 'Click xem nghĩa tiếng Việt'}</span>
+                    </button>
+                  </div>
+
+                  {showMeaning ? (
+                    <div className="mt-1 font-display font-bold text-3xl lg:text-4xl text-slate-900 animate-in fade-in duration-200">
+                      {currentCard.meaning}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowMeaning(true)}
+                      className="w-full py-2.5 px-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-medium text-slate-500 text-center transition-colors cursor-pointer"
+                    >
+                      Bấm vào đây để xem nghĩa tiếng Việt
+                    </button>
                   )}
                 </div>
 
-                {showMeaning && (
-                  <div className="pt-5 border-t border-slate-200">
-                    <div className="text-xs font-medium text-slate-500">Nghĩa tiếng Việt</div>
-                    <div className="mt-1 font-display font-semibold text-3xl text-slate-900">
-                      {currentCard.meaning}
-                    </div>
-                  </div>
-                )}
-
+                {/* Example Sentence Section */}
                 {showExample && currentCard.example && (
-                  <div className="pt-4 border-t border-slate-100">
-                    <div className="text-xs font-medium text-slate-500">Câu ví dụ</div>
-                    <p className="mt-1 text-lg text-slate-700 leading-relaxed">
+                  <div className="pt-4 border-t border-slate-100 space-y-1.5">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      Câu ví dụ
+                    </div>
+                    <p className="text-lg text-slate-700 leading-relaxed italic">
                       “{currentCard.example}”
                     </p>
                   </div>
                 )}
               </div>
 
+              {/* Bottom Pronunciation & Controls */}
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     onClick={() => handleSpeakCard(currentCard, false)}
-                    className="flex-1 inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-[#0284C7] text-white font-semibold text-base hover:bg-[#0369A1] transition-colors whitespace-nowrap"
+                    className="flex-1 inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white font-bold text-base transition-colors shadow-xs cursor-pointer"
                   >
                     <Volume2 className={`w-5 h-5 ${isSpeaking ? 'scale-110' : ''} transition-transform`} />
                     Nghe phát âm
@@ -227,7 +315,7 @@ export function LessonStage({
                     <button
                       type="button"
                       onClick={() => handleSpeakCard(currentCard, true)}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-medium text-sm hover:bg-slate-50 transition-colors whitespace-nowrap"
+                      className="inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 transition-colors whitespace-nowrap cursor-pointer"
                     >
                       Đọc câu mẫu
                     </button>
@@ -238,7 +326,7 @@ export function LessonStage({
                   <button
                     type="button"
                     onClick={handlePrev}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap cursor-pointer"
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Từ trước
@@ -249,7 +337,7 @@ export function LessonStage({
                   <button
                     type="button"
                     onClick={handleNext}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap cursor-pointer"
                   >
                     Từ tiếp
                     <ChevronRight className="w-4 h-4" />
@@ -263,10 +351,11 @@ export function LessonStage({
     );
   }
 
+  // ---------------- NORMAL STAGE MODE ----------------
   return (
     <div className="space-y-8">
-      {/* Page Title & Active Lesson Context */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-slate-200">
+      {/* Top Setting Bar: Speeds & Accents */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-emerald-100">
         <div>
           <p className="text-sm text-slate-500">
             {settings.classroomSubtitle} · Học liệu Nghe – Nhìn cục bộ
@@ -277,15 +366,25 @@ export function LessonStage({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center p-1 bg-slate-100 rounded-lg">
+          {/* Presentation Fullscreen Button */}
+          <button
+            type="button"
+            onClick={onTogglePresentationMode}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+          >
+            <Maximize2 className="w-4 h-4" />
+            <span>Phóng to bài giảng</span>
+          </button>
+
+          <div className="inline-flex items-center p-1 bg-slate-100 rounded-xl">
             {[0.7, 0.85, 1.0].map((rate) => (
               <button
                 key={rate}
                 type="button"
                 onClick={() => onUpdateSettings({ speechRate: rate })}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap tabular-nums ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap tabular-nums cursor-pointer ${
                   settings.speechRate === rate
-                    ? 'bg-white text-slate-900 shadow-xs'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -294,15 +393,15 @@ export function LessonStage({
             ))}
           </div>
 
-          <div className="inline-flex items-center p-1 bg-slate-100 rounded-lg">
+          <div className="inline-flex items-center p-1 bg-slate-100 rounded-xl">
             {(['en-US', 'en-GB'] as const).map((accent) => (
               <button
                 key={accent}
                 type="button"
                 onClick={() => onUpdateSettings({ voiceAccent: accent })}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
                   settings.voiceAccent === accent
-                    ? 'bg-white text-slate-900 shadow-xs'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -313,348 +412,255 @@ export function LessonStage({
         </div>
       </div>
 
-      {/* Two-Zone Educational Layout: Left Interactive Stage (8 cols) + Right Lesson & Deck Control Deck (4 cols) */}
+      {/* Main Grid: Left Stage (8 cols) + Right Deck Queue (4 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Main Visual-Auditory Stage */}
         <section className="lg:col-span-8 space-y-5">
           {!currentCard ? (
             <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center space-y-4">
               <p className="text-lg font-semibold text-slate-900">
                 Bài học này chưa có thẻ từ vựng nào
               </p>
-              <p className="text-sm text-slate-600 max-w-md mx-auto">
-                Thầy cô hãy chuyển sang mục Kho từ & Sách để thêm từ vựng mới hoặc cắt hình ảnh trực tiếp từ trang sách giáo khoa.
-              </p>
               <button
                 type="button"
                 onClick={() => onNavigateTab('studio')}
-                className="px-5 py-2.5 rounded-lg bg-[#0284C7] text-white text-sm font-medium hover:bg-[#0369A1] transition-colors"
+                className="px-5 py-2.5 rounded-xl bg-[#15803d] text-white text-sm font-bold hover:bg-[#166534] transition-colors cursor-pointer"
               >
                 Mở Kho từ & Sách
               </button>
             </div>
           ) : (
-            <>
-              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                {/* Visual Illustration Stage */}
-                <div className="relative aspect-[16/10] bg-slate-100 overflow-hidden">
-                  <ResilientImage
-                    src={currentCard.imageDataUrl}
-                    alt={currentCard.word}
-                    className="w-full h-full object-cover"
-                  />
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+              {/* Picture Stage: Click on Image to Reveal Word */}
+              <div
+                onClick={handleImageClick}
+                className="relative aspect-[16/10] bg-slate-100 overflow-hidden cursor-pointer group select-none"
+                title={showEnglishWord ? 'Nhấn để nghe lại phát âm' : 'Nhấn vào ảnh để hiện từ tiếng Anh'}
+              >
+                <ResilientImage
+                  src={currentCard.imageDataUrl}
+                  alt={currentCard.word}
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102"
+                />
 
-                  {/* Subtle Brand Stamp on Stage */}
-                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-white/92 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-200/80">
-                    <BrandMark logoDataUrl={settings.customLogoDataUrl} size="sm" />
-                    <span className="text-xs font-semibold text-slate-800 whitespace-nowrap">
-                      {settings.brandTitle}
+                {/* Subtle Brand Stamp */}
+                <div className="absolute top-4 left-4 flex items-center gap-2 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-200/80 shadow-2xs">
+                  <BrandMark logoDataUrl={settings.customLogoDataUrl} size="sm" />
+                  <span className="text-xs font-bold text-[#15803d] whitespace-nowrap">
+                    {settings.brandTitle}
+                  </span>
+                </div>
+
+                {/* Click hint on image if word not revealed yet */}
+                {!showEnglishWord && (
+                  <div className="absolute inset-0 bg-black/15 group-hover:bg-black/25 flex items-end justify-center pb-6 transition-all">
+                    <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 text-slate-900 font-bold text-sm shadow-md group-hover:scale-105 transition-transform">
+                      <span>👆 Nhấn vào ảnh để hiện từ tiếng Anh</span>
                     </span>
                   </div>
+                )}
+              </div>
 
-                  {/* Expand Projection Button */}
+              {/* Vocabulary Content & Controls (Refer to Image 1) */}
+              <div className="p-6 lg:p-8 space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="text-xs font-medium text-slate-500 tabular-nums">
+                      {activeDeck?.subtitle || activeDeck?.title} · Từ {safeIndex + 1} / {deckCards.length}
+                    </div>
+
+                    {/* Word area: Shown only after clicking image */}
+                    {showEnglishWord ? (
+                      <div className="mt-2 space-y-1.5 animate-in fade-in duration-300">
+                        <h2 className="font-display font-extrabold text-4xl lg:text-5xl tracking-tight text-slate-900">
+                          {currentCard.word}
+                        </h2>
+                        <div className="font-mono text-xl text-[#0284C7] font-semibold">
+                          {currentCard.phonetic}
+                        </div>
+                        {currentCard.syllables && (
+                          <p className="text-sm text-slate-600 font-medium">
+                            Tách âm: <span className="font-bold text-slate-800">{currentCard.syllables}</span>
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleImageClick}
+                        className="mt-3 w-full p-4 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/50 hover:bg-emerald-100/60 transition-all text-center cursor-pointer group"
+                      >
+                        <div className="text-2xl mb-1 group-hover:scale-110 transition-transform">🖼️ 👆</div>
+                        <div className="font-bold text-sm text-emerald-800">
+                          Nhấn vào bức ảnh để hiện từ tiếng Anh
+                        </div>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Pronunciation Action Button */}
                   <button
                     type="button"
-                    onClick={onTogglePresentationMode}
-                    title="Phóng to toàn màn hình trình chiếu lớp học"
-                    className="absolute top-4 right-4 inline-flex items-center gap-1.5 bg-white/92 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-200/80 text-xs font-medium text-slate-700 hover:bg-white transition-colors"
+                    onClick={() => handleSpeakCard(currentCard, false)}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm transition-colors shrink-0 shadow-xs cursor-pointer"
                   >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    Phóng to bảng
+                    <Volume2 className={`w-4 h-4 ${isSpeaking ? 'scale-110' : ''} transition-transform`} />
+                    {isSpeaking ? 'Đang phát âm...' : 'Nghe phát âm'}
                   </button>
                 </div>
 
-                {/* Vocabulary Content & Controls */}
-                <div className="p-6 lg:p-8 space-y-6">
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                    <div>
-                      <div className="text-xs text-slate-500 tabular-nums">
-                        {activeDeck?.title} · Thẻ {safeIndex + 1} / {deckCards.length}
-                        {currentCard.audioDataUrl ? ' · Có giọng thu âm riêng của giáo viên' : ' · Giọng đọc chuẩn bản ngữ'}
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                        <h2 className="font-display font-bold text-4xl lg:text-5xl tracking-tight text-slate-900">
-                          {currentCard.word}
-                        </h2>
-                        <span className="font-mono text-lg text-[#0284C7]">
-                          {currentCard.phonetic}
-                        </span>
-                      </div>
-                      {currentCard.syllables && (
-                        <p className="mt-1.5 text-sm text-slate-500">
-                          Âm tiết: <span className="font-medium text-slate-700">{currentCard.syllables}</span>
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Pronunciation Action Button */}
+                {/* Meaning Section: Separate Click Button (Requirement 1) */}
+                <div className="pt-5 border-t border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      Nghĩa tiếng Việt
+                    </span>
                     <button
                       type="button"
-                      onClick={() => handleSpeakCard(currentCard, false)}
-                      className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-[#0284C7] text-white font-semibold text-sm hover:bg-[#0369A1] transition-colors shrink-0 whitespace-nowrap"
+                      onClick={() => setShowMeaning((v) => !v)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-[#86efac] bg-[#ecfdf5] hover:bg-[#dcfce7] text-xs font-bold text-[#15803d] transition-colors cursor-pointer"
                     >
-                      <Volume2 className={`w-5 h-5 ${isSpeaking ? 'scale-110' : ''} transition-transform`} />
-                      {isSpeaking ? 'Đang phát âm...' : 'Nghe phát âm'}
+                      {showMeaning ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{showMeaning ? 'Ẩn nghĩa' : 'Click xem nghĩa tiếng Việt'}</span>
                     </button>
                   </div>
 
-                  {/* Meaning & Example Split */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-5 border-t border-slate-200">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-slate-500">
-                          Nghĩa tiếng Việt
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowMeaning((v) => !v)}
-                          className="text-xs font-medium text-[#0284C7] hover:underline whitespace-nowrap"
-                        >
-                          {showMeaning ? 'Che nghĩa' : 'Hiện nghĩa'}
-                        </button>
-                      </div>
-                      <p className="mt-1.5 font-display font-semibold text-2xl text-slate-900">
-                        {showMeaning ? currentCard.meaning : '••••••••'}
-                      </p>
+                  {showMeaning ? (
+                    <div className="font-display font-bold text-2xl lg:text-3xl text-slate-900 animate-in fade-in duration-200">
+                      {currentCard.meaning}
                     </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowMeaning(true)}
+                      className="w-full py-2.5 px-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-medium text-slate-500 text-center transition-colors cursor-pointer"
+                    >
+                      Bấm vào đây để xem nghĩa tiếng Việt
+                    </button>
+                  )}
+                </div>
 
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-slate-500">
-                          Câu ví dụ ngữ cảnh
-                        </span>
-                        <div className="flex items-center gap-3">
-                          {currentCard.example && (
-                            <button
-                              type="button"
-                              onClick={() => handleSpeakCard(currentCard, true)}
-                              className="text-xs font-medium text-[#0284C7] hover:underline whitespace-nowrap"
-                            >
-                              Nghe cả câu
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => setShowExample((v) => !v)}
-                            className="text-xs font-medium text-slate-500 hover:text-slate-800 whitespace-nowrap"
-                          >
-                            {showExample ? 'Ẩn' : 'Hiện'}
-                          </button>
-                        </div>
-                      </div>
-                      <p className="mt-1.5 text-sm text-slate-700 leading-relaxed">
-                        {showExample
-                          ? currentCard.example || 'Chưa có câu ví dụ.'
-                          : 'Nhấn “Hiện” để xem câu ví dụ.'}
-                      </p>
+                {/* Example sentence */}
+                {showExample && currentCard.example && (
+                  <div className="pt-4 border-t border-slate-100 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                        Câu ví dụ
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleSpeakCard(currentCard, true)}
+                        className="text-xs font-medium text-[#15803d] hover:underline cursor-pointer"
+                      >
+                        Nghe cả câu
+                      </button>
                     </div>
+                    <p className="text-sm sm:text-base text-slate-700 leading-relaxed italic">
+                      “{currentCard.example}”
+                    </p>
+                  </div>
+                )}
+
+                {/* Navigation Bar: Prev / Next */}
+                <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={handlePrev}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Từ trước
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onJumpToSpeaking(currentCard.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-purple-200 bg-purple-50 text-xs font-bold text-purple-700 hover:bg-purple-100 transition-colors cursor-pointer"
+                    >
+                      <Mic className="w-3.5 h-3.5" />
+                      Luyện nói từ này
+                    </button>
                   </div>
 
-                  {/* Stage Footer Controls */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 pt-5 border-t border-slate-200">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handlePrev}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap"
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                        Thẻ trước
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleNext}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap"
-                      >
-                        Thẻ sau
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAutoPlay((v) => !v)}
-                        className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm font-medium transition-colors whitespace-nowrap ${
-                          autoPlay
-                            ? 'border-[#0284C7] bg-[#0284C7]/10 text-[#0284C7]'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        {autoPlay ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                        {autoPlay ? 'Dừng tự động' : 'Tự động phát'}
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="flex items-center gap-1"
-                        title={`Thành tích luyện nói cao nhất: ${currentCard.bestStars}/5 sao`}
-                      >
-                        {[1, 2, 3, 4, 5].map((starIdx) => (
-                          <Star
-                            key={starIdx}
-                            className={`w-4 h-4 ${
-                              starIdx <= currentCard.bestStars
-                                ? 'fill-amber-400 text-amber-400'
-                                : 'text-slate-300'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onJumpToSpeaking(currentCard.id)}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition-colors whitespace-nowrap"
-                      >
-                        <Mic className="w-4 h-4" />
-                        Luyện nói từ này
-                      </button>
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    Từ tiếp
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-
-              {/* Thumbnail Filmstrip for Quick Jump */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {deckCards.map((card, idx) => {
-                  const isActive = idx === safeIndex;
-                  return (
-                    <button
-                      key={card.id}
-                      type="button"
-                      onClick={() => {
-                        setActiveIndex(idx);
-                        handleSpeakCard(card, false);
-                      }}
-                      className={`group text-left bg-white rounded-xl overflow-hidden border transition-all ${
-                        isActive
-                          ? 'border-[#0284C7] ring-2 ring-[#0284C7]/20'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="aspect-[4/3] bg-slate-100 overflow-hidden">
-                        <ResilientImage
-                          src={card.imageDataUrl}
-                          alt={card.word}
-                          className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-200"
-                        />
-                      </div>
-                      <div className="p-2.5">
-                        <div className="font-semibold text-sm text-slate-900 truncate">
-                          {card.word}
-                        </div>
-                        <div className="text-xs text-slate-500 truncate">
-                          {card.meaning}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
+            </div>
           )}
         </section>
 
-        {/* Right Control & Lesson Deck Sidebar */}
-        <aside className="lg:col-span-4 space-y-6">
-          {/* Deck Selector */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display font-semibold text-lg text-slate-900">
-                Chọn bài giảng
+        {/* Right Lesson Deck Queue (4 cols) */}
+        <aside className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-xs">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div>
+              <h2 className="font-display font-bold text-base text-slate-900">
+                {activeDeck?.title}
               </h2>
-              <span className="text-xs text-slate-500 tabular-nums">
-                {decks.length} chủ đề
-              </span>
+              <p className="text-xs text-slate-500">{activeDeck?.level}</p>
             </div>
+            <span className="text-xs font-bold text-[#15803d] bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+              {deckCards.length} từ
+            </span>
+          </div>
 
-            <div className="divide-y divide-slate-100">
-              {decks.map((deck) => {
-                const count = cards.filter((c) => c.deckId === deck.id).length;
-                const isSelected = deck.id === selectedDeckId;
-                return (
-                  <button
-                    key={deck.id}
-                    type="button"
-                    onClick={() => onSelectDeck(deck.id)}
-                    className={`w-full text-left py-3.5 px-3 -mx-3 rounded-lg transition-colors flex items-center justify-between gap-3 ${
-                      isSelected
-                        ? 'bg-[#0284C7]/8 text-[#0284C7]'
-                        : 'hover:bg-slate-50 text-slate-800'
-                    }`}
-                  >
+          <div className="divide-y divide-slate-100 max-h-[560px] overflow-y-auto pr-1">
+            {deckCards.map((card, idx) => {
+              const isCurrent = idx === safeIndex;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => setActiveIndex(idx)}
+                  className={`w-full py-3 px-3 rounded-xl flex items-center justify-between gap-3 transition-colors text-left cursor-pointer ${
+                    isCurrent
+                      ? 'bg-emerald-50/80 border border-emerald-300'
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
+                      <ResilientImage
+                        src={card.imageDataUrl}
+                        alt={card.word}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                     <div className="min-w-0">
-                      <div className={`font-semibold text-sm truncate ${isSelected ? 'text-[#0284C7]' : 'text-slate-900'}`}>
-                        {deck.title}
+                      <div
+                        className={`text-sm font-bold truncate ${
+                          isCurrent ? 'text-[#15803d]' : 'text-slate-900'
+                        }`}
+                      >
+                        {card.word}
                       </div>
-                      <div className="text-xs text-slate-500 truncate mt-0.5">
-                        {deck.subtitle} · {deck.level}
+                      <div className="text-xs text-slate-500 truncate">
+                        {card.meaning}
                       </div>
                     </div>
-                    <span className="text-xs font-mono text-slate-500 tabular-nums shrink-0">
-                      {count} từ
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Quick Classroom Activity Launchers */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
-            <h2 className="font-display font-semibold text-lg text-slate-900">
-              Hoạt động tiếp nối trên lớp
-            </h2>
-            <p className="text-sm text-slate-600 leading-relaxed">
-              Sau khi giới thiệu từ mới bằng Flashcard, giáo viên có thể chuyển ngay sang luyện phát âm hoặc tổ chức thi đấu hai đội.
-            </p>
-
-            <div className="space-y-2.5 pt-1">
-              <button
-                type="button"
-                onClick={() => onNavigateTab('speaking')}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-left transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Mic className="w-5 h-5 text-[#0284C7]" />
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">Phòng Luyện nói 1–5 sao</div>
-                    <div className="text-xs text-slate-500">Chấm phát âm & thu âm nghe lại</div>
                   </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
 
-              <button
-                type="button"
-                onClick={() => onNavigateTab('games')}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-left transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Gamepad2 className="w-5 h-5 text-amber-600" />
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">Thi đấu Versus Mode</div>
-                    <div className="text-xs text-slate-500">Lật bài · Nối từ · Đuổi hình bắt chữ</div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        className={`w-3 h-3 ${
+                          s <= card.bestStars
+                            ? 'fill-amber-400 text-amber-400'
+                            : 'text-slate-200 fill-slate-200'
+                        }`}
+                      />
+                    ))}
                   </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
-            </div>
-          </div>
-
-          {/* Presenter Shortcuts Reference */}
-          <div className="px-1 text-xs text-slate-500 space-y-1.5">
-            <div className="font-medium text-slate-700">Phím tắt điều khiển khi giảng dạy</div>
-            <div className="flex items-center justify-between">
-              <span>Phát âm từ hiện tại</span>
-              <span className="font-mono text-slate-700">Space</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Chuyển thẻ trước / sau</span>
-              <span className="font-mono text-slate-700">← / →</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Ẩn hoặc hiện nghĩa tiếng Việt</span>
-              <span className="font-mono text-slate-700">M</span>
-            </div>
+                </button>
+              );
+            })}
           </div>
         </aside>
       </div>

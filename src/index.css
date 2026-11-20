@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Bricolage Grotesque", "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Bricolage Grotesque", system-ui, sans-serif;
   --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
 }
@@ -24,7 +24,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid #0284C7;
+    outline: 2px solid #15803d;
     outline-offset: 2px;
   }
 }
