@@ -1,0 +1,6 @@
+{
+  "name": "Tiếng Anh Thầy Phúc — Hệ sinh thái EdTech Toàn diện",
+  "description": "Hệ sinh thái giảng dạy tiếng Anh tương tác cho trẻ em: Flashcard nghe-nhìn, Luyện nói & Chẩn đoán âm học AI (Gemini), Trò chơi thi đấu lớp học (Bắn bong bóng, Grand Prix), Xuất PowerPoint (.pptx), In phiếu bài tập (A4), Ngân hàng câu hỏi Moodle LMS và Vườn hoa tri thức D3.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
