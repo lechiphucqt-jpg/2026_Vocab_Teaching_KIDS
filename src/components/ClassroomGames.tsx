@@ -4299,24 +4299,24 @@ export function ClassroomGames({
                       </p>
                     </div>
                   )}
-                    <div className="flex items-center justify-center gap-2 pt-1">
-                      <span className="text-sm font-semibold text-slate-500">Từ tiếng Anh:</span>
-                      <span className="text-2xl font-black text-indigo-700">{surveyModalCard.word}</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          speakVocabulary(surveyModalCard.word, {
-                            audioDataUrl: surveyModalCard.audioDataUrl,
-                            rate: settings.speechRate,
-                            accent: settings.voiceAccent,
-                          })
-                        }
-                        className="p-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors shadow-2xs cursor-pointer"
-                        title="Nghe phát âm"
-                      >
-                        <Volume2 className="w-5 h-5" />
-                      </button>
-                    </div>
+
+                  <div className="flex items-center justify-center gap-2 pt-1">
+                    <span className="text-sm font-semibold text-slate-500">Từ tiếng Anh:</span>
+                    <span className="text-2xl font-black text-indigo-700">{surveyModalCard.word}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        speakVocabulary(surveyModalCard.word, {
+                          audioDataUrl: surveyModalCard.audioDataUrl,
+                          rate: settings.speechRate,
+                          accent: settings.voiceAccent,
+                        })
+                      }
+                      className="p-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors shadow-2xs cursor-pointer"
+                      title="Nghe phát âm"
+                    >
+                      <Volume2 className="w-5 h-5" />
+                    </button>
                   </div>
 
                   <button
