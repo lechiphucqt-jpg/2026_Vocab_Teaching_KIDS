@@ -1,39 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
-  Eraser,
-  HelpCircle,
   RotateCcw,
   Trophy,
-  Users,
   Volume2,
   VolumeX,
   Sparkles,
-  Zap,
-  Flame,
-  Award,
   Gift,
   EyeOff,
-  Compass,
-  Flag,
   Key,
-  Lock,
-  Unlock,
-  Play,
-  Pause,
-  Shuffle,
   CheckCircle2,
-  XCircle,
-  AlertCircle,
-  ArrowRight,
-  BookOpen,
-  Footprints,
   Disc,
+  HelpCircle,
+  ChevronLeft,
+  ChevronRight,
+  Grid,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { BrandSettings, GameKind, LessonDeck, VocabCard } from '../types/edtech';
 import { playClassroomSfx, speakVocabulary } from '../utils/mediaUtils';
 import { triggerCelebration } from '../utils/celebration';
-import { BrandMark } from './BrandMark';
 import { ResilientImage } from './ResilientImage';
 
 interface ClassroomGamesProps {
@@ -108,27 +94,60 @@ export function ClassroomGames({
   settings,
   onUpdateSettings,
 }: ClassroomGamesProps) {
-  const [gameKind, setGameKind] = useState<GameKind>('match');
+  const [gameKind, setGameKind] = useState<GameKind>('bubble');
   const [useAllDecks, setUseAllDecks] = useState(true);
   const [scoreA, setScoreA] = useState(0);
   const [scoreB, setScoreB] = useState(0);
   const [activeTeam, setActiveTeam] = useState<TeamKey>('A');
   const [bannerText, setBannerText] = useState('Chào mừng các bé đến với Sân đấu trò chơi từ vựng!');
   const [isFinished, setIsFinished] = useState(false);
+  const [gameMenuMode, setGameMenuMode] = useState<'slider' | 'grid'>('slider');
+
+  const scrollNavRef = useRef<HTMLDivElement>(null);
+
+  const scrollNav = (direction: 'left' | 'right') => {
+    if (!scrollNavRef.current) return;
+    const distance = 280;
+    scrollNavRef.current.scrollBy({
+      left: direction === 'left' ? -distance : distance,
+      behavior: 'smooth',
+    });
+  };
 
   const poolCards = useMemo(() => {
     const list = useAllDecks ? cards : cards.filter((c) => c.deckId === selectedDeckId);
     return list.length > 0 ? list : cards;
   }, [cards, selectedDeckId, useAllDecks]);
 
-  // ---------------- 1. PICTURE MATCHING ----------------
+  // ---------------- 1. BUBBLE POP / TRÁI CÂY ----------------
+  const [bubbleQueue, setBubbleQueue] = useState<VocabCard[]>([]);
+  const [bubbleIdx, setBubbleIdx] = useState(0);
+  const [bubbleChoices, setBubbleChoices] = useState<VocabCard[]>([]);
+  const [poppedIds, setPoppedIds] = useState<string[]>([]);
+  const [bubbleTheme, setBubbleTheme] = useState<'bubble' | 'fruit'>('bubble');
+
+  // ---------------- 2. GRAND PRIX RACE ----------------
+  const [racePosA, setRacePosA] = useState(0);
+  const [racePosB, setRacePosB] = useState(0);
+  const [raceQueue, setRaceQueue] = useState<VocabCard[]>([]);
+  const [raceIdx, setRaceIdx] = useState(0);
+  const [raceChoices, setRaceChoices] = useState<VocabCard[]>([]);
+
+  // ---------------- 3. SCRAMBLE GHÉP CHỮ ----------------
+  const [scrambleQueue, setScrambleQueue] = useState<VocabCard[]>([]);
+  const [scrambleIdx, setScrambleIdx] = useState(0);
+  const [scrambleLetters, setScrambleLetters] = useState<ScrambleLetter[]>([]);
+  const [scrambleBuilt, setScrambleBuilt] = useState<ScrambleLetter[]>([]);
+  const [scrambleFeedback, setScrambleFeedback] = useState<'idle' | 'correct' | 'wrong'>('idle');
+
+  // ---------------- 4. PICTURE MATCHING ----------------
   const [matchLeftCards, setMatchLeftCards] = useState<VocabCard[]>([]);
   const [matchRightCards, setMatchRightCards] = useState<VocabCard[]>([]);
   const [selectedLeftId, setSelectedLeftId] = useState<string | null>(null);
   const [matchedCardTeams, setMatchedCardTeams] = useState<Record<string, TeamKey>>({});
   const [wrongPairFlash, setWrongPairFlash] = useState<string | null>(null);
 
-  // ---------------- 2. MYSTERY BOX ----------------
+  // ---------------- 5. MYSTERY BOX ----------------
   interface MysteryBoxItem {
     id: number;
     card: VocabCard;
@@ -140,14 +159,14 @@ export function ClassroomGames({
   const [mysteryBoxes, setMysteryBoxes] = useState<MysteryBoxItem[]>([]);
   const [activeMysteryBox, setActiveMysteryBox] = useState<MysteryBoxItem | null>(null);
 
-  // ---------------- 3. WHAT'S MISSING? ----------------
+  // ---------------- 6. WHAT'S MISSING? ----------------
   const [missingCards, setMissingCards] = useState<VocabCard[]>([]);
   const [missingTargetCard, setMissingTargetCard] = useState<VocabCard | null>(null);
   const [missingPhase, setMissingPhase] = useState<'remember' | 'guess' | 'revealed'>('remember');
   const [missingCountdown, setMissingCountdown] = useState(5);
   const [missingOptions, setMissingOptions] = useState<VocabCard[]>([]);
 
-  // ---------------- 4. SPIN THE WHEEL ----------------
+  // ---------------- 7. SPIN THE WHEEL ----------------
   const WHEEL_PRIZES = useMemo(() => [
     { label: '+10 Điểm', points: 10, color: '#10B981' },
     { label: '+20 Điểm', points: 20, color: '#0284C7' },
@@ -164,38 +183,31 @@ export function ClassroomGames({
   const [wheelCurrentCard, setWheelCurrentCard] = useState<VocabCard | null>(null);
   const [wheelOptions, setWheelOptions] = useState<VocabCard[]>([]);
 
-  // ---------------- 5. WORD MAZE ----------------
-  const [mazeStep, setMazeStep] = useState(0); // 0 to 5
+  // ---------------- 8. WORD MAZE ----------------
+  const [mazeStep, setMazeStep] = useState(0);
   const [mazeQueue, setMazeQueue] = useState<VocabCard[]>([]);
   const [mazeOptions, setMazeOptions] = useState<VocabCard[]>([]);
 
-  // ---------------- 6. WORD RACE ----------------
-  const [racePosA, setRacePosA] = useState(0);
-  const [racePosB, setRacePosB] = useState(0);
-  const [raceQueue, setRaceQueue] = useState<VocabCard[]>([]);
-  const [raceIdx, setRaceIdx] = useState(0);
-  const [raceChoices, setRaceChoices] = useState<VocabCard[]>([]);
-
-  // ---------------- 7. WORD SORTING ----------------
+  // ---------------- 9. WORD SORTING ----------------
   const [sortQueue, setSortQueue] = useState<VocabCard[]>([]);
   const [sortIdx, setSortIdx] = useState(0);
   const [sortedBasketA, setSortedBasketA] = useState<VocabCard[]>([]);
   const [sortedBasketB, setSortedBasketB] = useState<VocabCard[]>([]);
 
-  // ---------------- 8. SPELL IT! ----------------
+  // ---------------- 10. SPELL IT! ----------------
   const [spellQueue, setSpellQueue] = useState<VocabCard[]>([]);
   const [spellIdx, setSpellIdx] = useState(0);
   const [spellLetters, setSpellLetters] = useState<ScrambleLetter[]>([]);
   const [spellBuilt, setSpellBuilt] = useState<ScrambleLetter[]>([]);
   const [spellFeedback, setSpellFeedback] = useState<'idle' | 'correct' | 'wrong'>('idle');
 
-  // ---------------- 9. TABOO WORDS ----------------
+  // ---------------- 11. TABOO WORDS ----------------
   const [tabooQueue, setTabooQueue] = useState<VocabCard[]>([]);
   const [tabooIdx, setTabooIdx] = useState(0);
   const [tabooTimer, setTabooTimer] = useState(30);
   const [isTabooTimerRunning, setIsTabooTimerRunning] = useState(false);
 
-  // ---------------- 10. BUILD A SENTENCE ----------------
+  // ---------------- 12. BUILD A SENTENCE ----------------
   interface SentenceWord {
     id: string;
     text: string;
@@ -207,13 +219,12 @@ export function ClassroomGames({
   const [builtSentence, setBuiltSentence] = useState<SentenceWord[]>([]);
   const [sentenceFeedback, setSentenceFeedback] = useState<'idle' | 'correct' | 'wrong'>('idle');
 
-  // ---------------- 11. VOCABULARY ESCAPE ROOM ----------------
-  const [escapeRoomLevel, setEscapeRoomLevel] = useState(1); // 1, 2, 3
+  // ---------------- 13. ESCAPE ROOM ----------------
+  const [escapeRoomLevel, setEscapeRoomLevel] = useState(1);
   const [escapeCard, setEscapeCard] = useState<VocabCard | null>(null);
   const [escapeOptions, setEscapeOptions] = useState<VocabCard[]>([]);
-  const [escapeCodeInput, setEscapeCodeInput] = useState('');
 
-  // ---------------- 12. MEMORY FLIP ----------------
+  // ---------------- 14. MEMORY FLIP ----------------
   const [memoryTiles, setMemoryTiles] = useState<MemoryTile[]>([]);
   const [flippedUids, setFlippedUids] = useState<string[]>([]);
   const [lockBoard, setLockBoard] = useState(false);
@@ -225,18 +236,16 @@ export function ClassroomGames({
 
   const nextTeamName = (t: TeamKey) => (t === 'A' ? settings.teamAName : settings.teamBName);
 
-  // Helper to build 3 choices (1 correct, 2 distractors)
-  const buildOptionsForCard = useCallback((targetCard: VocabCard, all: VocabCard[], count = 3): VocabCard[] => {
+  const buildOptionsForCard = useCallback((targetCard: VocabCard, all: VocabCard[], count = 4): VocabCard[] => {
     const distractors = all.filter((c) => c.id !== targetCard.id);
     const chosenDistractors = shuffleArray(distractors).slice(0, count - 1);
     return shuffleArray([targetCard, ...chosenDistractors]);
   }, []);
 
-  // Helper for spelling setup
-  const buildSpellForCard = useCallback((card: VocabCard | undefined) => {
+  const buildScrambleForCard = useCallback((card: VocabCard | undefined) => {
     if (!card) {
-      setSpellLetters([]);
-      setSpellBuilt([]);
+      setScrambleLetters([]);
+      setScrambleBuilt([]);
       return;
     }
     const cleanWord = card.word.replace(/[^A-Za-z]/g, '').toUpperCase();
@@ -245,12 +254,11 @@ export function ClassroomGames({
       char,
       used: false,
     }));
-    setSpellLetters(shuffleArray(letters));
-    setSpellBuilt([]);
-    setSpellFeedback('idle');
+    setScrambleLetters(shuffleArray(letters));
+    setScrambleBuilt([]);
+    setScrambleFeedback('idle');
   }, []);
 
-  // Helper for sentence setup
   const buildSentenceForCard = useCallback((card: VocabCard | undefined) => {
     if (!card) {
       setSentenceWords([]);
@@ -281,7 +289,37 @@ export function ClassroomGames({
 
     if (poolCards.length === 0) return;
 
-    if (gameKind === 'match') {
+    if (gameKind === 'bubble') {
+      const shuffled = shuffleArray(poolCards);
+      setBubbleQueue(shuffled);
+      setBubbleIdx(0);
+      setPoppedIds([]);
+      if (shuffled[0]) {
+        setBubbleChoices(buildOptionsForCard(shuffled[0], poolCards, 4));
+        speakVocabulary(shuffled[0].word, {
+          audioDataUrl: shuffled[0].audioDataUrl,
+          rate: settings.speechRate,
+          accent: settings.voiceAccent,
+        });
+      }
+      setBannerText(`Lượt của ${settings.teamAName}: Lắng nghe loa phát âm và bấm trúng bong bóng đang bay!`);
+    } else if (gameKind === 'race') {
+      setRacePosA(0);
+      setRacePosB(0);
+      const shuffled = shuffleArray(poolCards);
+      setRaceQueue(shuffled);
+      setRaceIdx(0);
+      if (shuffled[0]) {
+        setRaceChoices(buildOptionsForCard(shuffled[0], poolCards, 4));
+      }
+      setBannerText(`Lượt của ${settings.teamAName}: Nghe hoặc nhìn hình chọn đúng để xe rồ ga về đích (+15 điểm)!`);
+    } else if (gameKind === 'scramble') {
+      const shuffled = shuffleArray(poolCards);
+      setScrambleQueue(shuffled);
+      setScrambleIdx(0);
+      buildScrambleForCard(shuffled[0]);
+      setBannerText(`Lượt của ${settings.teamAName}: Nhìn hình và bấm các chữ cái xáo trộn để ghép thành từ đúng.`);
+    } else if (gameKind === 'match') {
       const subset = poolCards.slice(0, 6);
       setMatchLeftCards(shuffleArray(subset));
       setMatchRightCards(shuffleArray(subset));
@@ -336,17 +374,6 @@ export function ClassroomGames({
         setMazeOptions(buildOptionsForCard(shuffled[0], poolCards, 3));
       }
       setBannerText(`Lượt của ${settings.teamAName}: Dẫn đường cho bạn Thỏ 🐰 qua 5 trạm để về đích nhận cà rốt 🥕!`);
-    } else if (gameKind === 'race') {
-      setRacePosA(0);
-      setRacePosB(0);
-      const shuffled = shuffleArray(poolCards);
-      setRaceQueue(shuffled);
-      setRaceIdx(0);
-      if (shuffled[0]) {
-        const distractors = poolCards.filter((c) => c.id !== shuffled[0].id);
-        setRaceChoices(shuffleArray([shuffled[0], ...shuffleArray(distractors).slice(0, 3)]));
-      }
-      setBannerText(`Lượt của ${settings.teamAName}: Chọn đúng từ để xe rồ ga tiến về đích (+15 điểm)!`);
     } else if (gameKind === 'sorting') {
       const shuffled = shuffleArray(poolCards);
       setSortQueue(shuffled);
@@ -358,7 +385,7 @@ export function ClassroomGames({
       const shuffled = shuffleArray(poolCards);
       setSpellQueue(shuffled);
       setSpellIdx(0);
-      buildSpellForCard(shuffled[0]);
+      buildScrambleForCard(shuffled[0]);
       setBannerText(`Lượt của ${settings.teamAName}: Bấm từng chữ cái theo đúng thứ tự để đánh vần từ vựng!`);
     } else if (gameKind === 'taboo') {
       const shuffled = shuffleArray(poolCards);
@@ -379,7 +406,6 @@ export function ClassroomGames({
       const c = shuffled[0] || poolCards[0];
       setEscapeCard(c);
       setEscapeOptions(buildOptionsForCard(c, poolCards, 3));
-      setEscapeCodeInput('');
       setBannerText(`Lượt của ${settings.teamAName}: Căn phòng số 1 đang khóa! Giải mã từ vựng để mở cửa thoát hiểm!`);
     } else if (gameKind === 'memory') {
       const pairSource = poolCards.slice(0, 6);
@@ -411,18 +437,20 @@ export function ClassroomGames({
     }
   }, [
     buildOptionsForCard,
+    buildScrambleForCard,
     buildSentenceForCard,
-    buildSpellForCard,
     gameKind,
     poolCards,
+    settings.speechRate,
     settings.teamAName,
+    settings.voiceAccent,
   ]);
 
   useEffect(() => {
     resetCurrentGame();
   }, [resetCurrentGame]);
 
-  // Taboo Timer Countdown
+  // Taboo Timer
   useEffect(() => {
     if (gameKind !== 'taboo' || !isTabooTimerRunning) return;
     if (tabooTimer <= 0) {
@@ -433,9 +461,7 @@ export function ClassroomGames({
       setBannerText(`Hết giờ rồi! Đổi lượt sang ${nextTeamName(nextTeam)}.`);
       return;
     }
-    const timer = setInterval(() => {
-      setTabooTimer((t) => t - 1);
-    }, 1000);
+    const timer = setInterval(() => setTabooTimer((t) => t - 1), 1000);
     return () => clearInterval(timer);
   }, [gameKind, isTabooTimerRunning, tabooTimer, activeTeam, settings.soundEffectsEnabled]);
 
@@ -448,13 +474,157 @@ export function ClassroomGames({
       setBannerText(`Nhắm mắt lại nào! Bức tranh nào vừa biến mất? Hãy chọn đáp án đúng!`);
       return;
     }
-    const timer = setInterval(() => {
-      setMissingCountdown((c) => c - 1);
-    }, 1000);
+    const timer = setInterval(() => setMissingCountdown((c) => c - 1), 1000);
     return () => clearInterval(timer);
   }, [gameKind, missingCountdown, missingPhase, settings.soundEffectsEnabled]);
 
-  // ---------------- 1. PICTURE MATCHING HANDLER ----------------
+  // ---------------- 1. BUBBLE POP HANDLER ----------------
+  const currentBubbleTarget = bubbleQueue[bubbleIdx];
+
+  const handleBubbleClick = (clickedCard: VocabCard) => {
+    if (!currentBubbleTarget || isFinished || poppedIds.includes(clickedCard.id)) return;
+
+    if (clickedCard.id === currentBubbleTarget.id) {
+      playClassroomSfx('match', settings.soundEffectsEnabled);
+      setPoppedIds((prev) => [...prev, clickedCard.id]);
+      awardPoints(activeTeam, 10);
+      triggerCelebration();
+
+      setTimeout(() => {
+        const nextIdx = bubbleIdx + 1;
+        if (nextIdx < bubbleQueue.length) {
+          setBubbleIdx(nextIdx);
+          setPoppedIds([]);
+          setBubbleChoices(buildOptionsForCard(bubbleQueue[nextIdx], poolCards, 4));
+          speakVocabulary(bubbleQueue[nextIdx].word, {
+            audioDataUrl: bubbleQueue[nextIdx].audioDataUrl,
+            rate: settings.speechRate,
+            accent: settings.voiceAccent,
+          });
+          setBannerText(`Bùm! ${nextTeamName(activeTeam)} bắn trúng bóng "${currentBubbleTarget.word}" (+10 điểm)!`);
+        } else {
+          setIsFinished(true);
+          triggerCelebration();
+          playClassroomSfx('victory', settings.soundEffectsEnabled);
+          setBannerText('Tuyệt đỉnh! Đã bắn nổ toàn bộ bóng từ vựng!');
+        }
+      }, 700);
+    } else {
+      playClassroomSfx('wrong', settings.soundEffectsEnabled);
+      const nextTeam: TeamKey = activeTeam === 'A' ? 'B' : 'A';
+      setActiveTeam(nextTeam);
+      setBannerText(`Bắn nhầm bóng rồi! Đổi lượt sang ${nextTeamName(nextTeam)}.`);
+    }
+  };
+
+  const handlePlayCurrentBubbleAudio = () => {
+    if (!currentBubbleTarget) return;
+    speakVocabulary(currentBubbleTarget.word, {
+      audioDataUrl: currentBubbleTarget.audioDataUrl,
+      rate: settings.speechRate,
+      accent: settings.voiceAccent,
+    });
+  };
+
+  // ---------------- 2. GRAND PRIX RACE HANDLER ----------------
+  const currentRaceTarget = raceQueue[raceIdx];
+
+  const handleRaceAnswer = (chosenCard: VocabCard) => {
+    if (!currentRaceTarget || isFinished) return;
+
+    if (chosenCard.id === currentRaceTarget.id) {
+      playClassroomSfx('star', settings.soundEffectsEnabled);
+      speakVocabulary(chosenCard.word, {
+        audioDataUrl: chosenCard.audioDataUrl,
+        rate: settings.speechRate,
+        accent: settings.voiceAccent,
+      });
+
+      let won = false;
+      if (activeTeam === 'A') {
+        const nextPos = racePosA + 1;
+        setRacePosA(nextPos);
+        awardPoints('A', 15);
+        if (nextPos >= 5) won = true;
+      } else {
+        const nextPos = racePosB + 1;
+        setRacePosB(nextPos);
+        awardPoints('B', 15);
+        if (nextPos >= 5) won = true;
+      }
+
+      if (won) {
+        setIsFinished(true);
+        triggerCelebration();
+        playClassroomSfx('victory', settings.soundEffectsEnabled);
+        setBannerText(`🏆 ${nextTeamName(activeTeam)} đã cán đích đầu tiên và giành cúp vô địch Grand Prix!`);
+      } else {
+        const nextIdx = (raceIdx + 1) % raceQueue.length;
+        setRaceIdx(nextIdx);
+        setRaceChoices(buildOptionsForCard(raceQueue[nextIdx], poolCards, 4));
+        setBannerText(`Rồ ga thành công! Xe ${nextTeamName(activeTeam)} tiến thêm 1 trạm (+15 điểm)!`);
+      }
+    } else {
+      playClassroomSfx('wrong', settings.soundEffectsEnabled);
+      const nextTeam: TeamKey = activeTeam === 'A' ? 'B' : 'A';
+      setActiveTeam(nextTeam);
+      setBannerText(`Chưa đúng! Xe bị khựng lại, chuyển lượt sang ${nextTeamName(nextTeam)}.`);
+    }
+  };
+
+  // ---------------- 3. SCRAMBLE HANDLER ----------------
+  const currentScrambleCard = scrambleQueue[scrambleIdx];
+
+  const handlePickScrambleLetter = (letter: ScrambleLetter) => {
+    if (letter.used || scrambleFeedback !== 'idle' || !currentScrambleCard) return;
+
+    playClassroomSfx('flip', settings.soundEffectsEnabled);
+    setScrambleLetters((prev) => prev.map((l) => (l.id === letter.id ? { ...l, used: true } : l)));
+    const nextBuilt = [...scrambleBuilt, letter];
+    setScrambleBuilt(nextBuilt);
+
+    const cleanTarget = currentScrambleCard.word.replace(/[^A-Za-z]/g, '').toUpperCase();
+    if (nextBuilt.length === cleanTarget.length) {
+      const assembled = nextBuilt.map((l) => l.char).join('');
+      if (assembled === cleanTarget) {
+        setScrambleFeedback('correct');
+        playClassroomSfx('match', settings.soundEffectsEnabled);
+        speakVocabulary(currentScrambleCard.word, {
+          audioDataUrl: currentScrambleCard.audioDataUrl,
+          rate: settings.speechRate,
+          accent: settings.voiceAccent,
+        });
+        awardPoints(activeTeam, 15);
+
+        setTimeout(() => {
+          const nextIdx = scrambleIdx + 1;
+          if (nextIdx < scrambleQueue.length) {
+            setScrambleIdx(nextIdx);
+            buildScrambleForCard(scrambleQueue[nextIdx]);
+            setBannerText(`Chính xác! Ghép thành công "${currentScrambleCard.word}" (+15 điểm).`);
+          } else {
+            setIsFinished(true);
+            triggerCelebration();
+            playClassroomSfx('victory', settings.soundEffectsEnabled);
+            setBannerText('Chúc mừng! Đã ghép xong tất cả các từ trong bài học!');
+          }
+        }, 1100);
+      } else {
+        setScrambleFeedback('wrong');
+        playClassroomSfx('wrong', settings.soundEffectsEnabled);
+        setTimeout(() => {
+          setScrambleBuilt([]);
+          setScrambleLetters((prev) => prev.map((l) => ({ ...l, used: false })));
+          setScrambleFeedback('idle');
+          const nextTeam: TeamKey = activeTeam === 'A' ? 'B' : 'A';
+          setActiveTeam(nextTeam);
+          setBannerText(`Ghép chưa đúng! Đổi lượt sang ${nextTeamName(nextTeam)}.`);
+        }, 900);
+      }
+    }
+  };
+
+  // ---------------- 4. PICTURE MATCHING HANDLER ----------------
   const handleMatchLeftClick = (card: VocabCard) => {
     if (matchedCardTeams[card.id]) return;
     playClassroomSfx('flip', settings.soundEffectsEnabled);
@@ -496,7 +666,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 2. MYSTERY BOX HANDLER ----------------
+  // ---------------- 5. MYSTERY BOX HANDLER ----------------
   const handleOpenMysteryBox = (box: MysteryBoxItem) => {
     if (box.isOpened) return;
     playClassroomSfx('star', settings.soundEffectsEnabled);
@@ -522,7 +692,6 @@ export function ClassroomGames({
       setBannerText(`🎉 Chúc mừng ${nextTeamName(activeTeam)} mở được ${activeMysteryBox.prizeLabel}!`);
       setActiveMysteryBox(null);
 
-      // Check if all boxes opened
       const remainingUnopened = mysteryBoxes.filter((b) => b.id !== activeMysteryBox.id && !b.isOpened);
       if (remainingUnopened.length === 0) {
         setIsFinished(true);
@@ -536,7 +705,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 3. WHAT'S MISSING HANDLER ----------------
+  // ---------------- 6. WHAT'S MISSING HANDLER ----------------
   const handleMissingAnswer = (chosenCard: VocabCard) => {
     if (!missingTargetCard || missingPhase !== 'guess') return;
 
@@ -550,10 +719,9 @@ export function ClassroomGames({
       awardPoints(activeTeam, 15);
       setMissingPhase('revealed');
       triggerCelebration();
-      setBannerText(`✨ Tuyệt vời! ${nextTeamName(activeTeam)} đã tìm ra bức tranh bị biến mất: "${chosenCard.word}" (+15 điểm)!`);
+      setBannerText(`✨ Tuyệt vời! ${nextTeamName(activeTeam)} đã tìm ra tranh bị biến mất: "${chosenCard.word}" (+15 điểm)!`);
 
       setTimeout(() => {
-        // Next round
         const subset = shuffleArray(poolCards).slice(0, 4);
         setMissingCards(subset);
         const chosenTarget = subset[Math.floor(Math.random() * subset.length)];
@@ -570,7 +738,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 4. SPIN THE WHEEL HANDLER ----------------
+  // ---------------- 7. SPIN THE WHEEL HANDLER ----------------
   const handleSpinWheel = () => {
     if (isWheelSpinning) return;
     setIsWheelSpinning(true);
@@ -582,7 +750,6 @@ export function ClassroomGames({
     const randomIdx = Math.floor(Math.random() * segmentCount);
     const chosenPrize = WHEEL_PRIZES[randomIdx];
 
-    // Calculate rotation: multiple full spins + offset to target segment
     const segmentAngle = 360 / segmentCount;
     const extraSpins = 5 * 360;
     const targetAngle = extraSpins + (segmentCount - 1 - randomIdx) * segmentAngle + segmentAngle / 2;
@@ -594,11 +761,10 @@ export function ClassroomGames({
       setWheelWonPrize(chosenPrize);
       playClassroomSfx('star', settings.soundEffectsEnabled);
 
-      // Pick a random question card
       const randomCard = poolCards[Math.floor(Math.random() * poolCards.length)];
       setWheelCurrentCard(randomCard);
       setWheelOptions(buildOptionsForCard(randomCard, poolCards, 4));
-      setBannerText(`Vòng quay dừng ở: ${chosenPrize.label}! Hãy trả lời câu hỏi dưới đây để rinh điểm.`);
+      setBannerText(`Vòng quay dừng ở: ${chosenPrize.label}! Hãy trả lời câu hỏi để rinh điểm.`);
     }, 3200);
   };
 
@@ -627,7 +793,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 5. WORD MAZE HANDLER ----------------
+  // ---------------- 8. WORD MAZE HANDLER ----------------
   const currentMazeCard = mazeQueue[mazeStep];
 
   const handleMazeAnswer = (chosenCard: VocabCard) => {
@@ -661,54 +827,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 6. WORD RACE HANDLER ----------------
-  const currentRaceTarget = raceQueue[raceIdx];
-
-  const handleRaceAnswer = (chosenCard: VocabCard) => {
-    if (!currentRaceTarget || isFinished) return;
-
-    if (chosenCard.id === currentRaceTarget.id) {
-      playClassroomSfx('star', settings.soundEffectsEnabled);
-      speakVocabulary(chosenCard.word, {
-        audioDataUrl: chosenCard.audioDataUrl,
-        rate: settings.speechRate,
-        accent: settings.voiceAccent,
-      });
-
-      let won = false;
-      if (activeTeam === 'A') {
-        const nextPos = racePosA + 1;
-        setRacePosA(nextPos);
-        awardPoints('A', 15);
-        if (nextPos >= 5) won = true;
-      } else {
-        const nextPos = racePosB + 1;
-        setRacePosB(nextPos);
-        awardPoints('B', 15);
-        if (nextPos >= 5) won = true;
-      }
-
-      if (won) {
-        setIsFinished(true);
-        triggerCelebration();
-        playClassroomSfx('victory', settings.soundEffectsEnabled);
-        setBannerText(`🏆 ${nextTeamName(activeTeam)} đã cán đích đầu tiên và giành chiến thắng Grand Prix!`);
-      } else {
-        const nextIdx = (raceIdx + 1) % raceQueue.length;
-        setRaceIdx(nextIdx);
-        const distractors = poolCards.filter((c) => c.id !== raceQueue[nextIdx].id);
-        setRaceChoices(shuffleArray([raceQueue[nextIdx], ...shuffleArray(distractors).slice(0, 3)]));
-        setBannerText(`Rồ ga thành công! ${nextTeamName(activeTeam)} tiến thêm 1 trạm (+15 điểm)!`);
-      }
-    } else {
-      playClassroomSfx('wrong', settings.soundEffectsEnabled);
-      const nextTeam: TeamKey = activeTeam === 'A' ? 'B' : 'A';
-      setActiveTeam(nextTeam);
-      setBannerText(`Chưa đúng! Xe khựng lại, chuyển lượt sang ${nextTeamName(nextTeam)}.`);
-    }
-  };
-
-  // ---------------- 7. WORD SORTING HANDLER ----------------
+  // ---------------- 9. WORD SORTING HANDLER ----------------
   const currentSortCard = sortQueue[sortIdx];
 
   const handleSortIntoBasket = (basket: 'A' | 'B') => {
@@ -747,7 +866,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 8. SPELL IT HANDLER ----------------
+  // ---------------- 10. SPELL IT HANDLER ----------------
   const currentSpellCard = spellQueue[spellIdx];
 
   const handlePickSpellLetter = (letter: ScrambleLetter) => {
@@ -775,7 +894,7 @@ export function ClassroomGames({
           const nextIdx = spellIdx + 1;
           if (nextIdx < spellQueue.length) {
             setSpellIdx(nextIdx);
-            buildSpellForCard(spellQueue[nextIdx]);
+            buildScrambleForCard(spellQueue[nextIdx]);
             setBannerText(`Chính xác! Đánh vần hoàn hảo: "${currentSpellCard.word}" (+15 điểm).`);
           } else {
             setIsFinished(true);
@@ -799,7 +918,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 9. TABOO WORDS HANDLER ----------------
+  // ---------------- 11. TABOO WORDS HANDLER ----------------
   const currentTabooCard = tabooQueue[tabooIdx];
 
   const handleTabooSuccess = () => {
@@ -832,7 +951,7 @@ export function ClassroomGames({
     setBannerText(`Đã bỏ qua! Chuyển lượt sang ${nextTeamName(nextTeam)}.`);
   };
 
-  // ---------------- 10. BUILD A SENTENCE HANDLER ----------------
+  // ---------------- 12. BUILD A SENTENCE HANDLER ----------------
   const currentSentenceCard = sentenceQueue[sentenceIdx];
 
   const handlePickSentenceWord = (wordObj: SentenceWord) => {
@@ -890,7 +1009,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 11. ESCAPE ROOM HANDLER ----------------
+  // ---------------- 13. ESCAPE ROOM HANDLER ----------------
   const handleEscapeRoomAnswer = (chosenCard: VocabCard) => {
     if (!escapeCard || isFinished) return;
 
@@ -908,7 +1027,7 @@ export function ClassroomGames({
         const nextCard = poolCards[1 % poolCards.length];
         setEscapeCard(nextCard);
         setEscapeOptions(buildOptionsForCard(nextCard, poolCards, 3));
-        setBannerText(`🔓 Cửa 1 mở! Vào Phòng Mật Mã số 2: Điền ký tự giải mã để mở khóa!`);
+        setBannerText(`🔓 Cửa 1 mở! Vào Phòng Mật Mã số 2: Giải mã tiếp để mở khóa!`);
       } else if (escapeRoomLevel === 2) {
         setEscapeRoomLevel(3);
         const nextCard = poolCards[2 % poolCards.length];
@@ -930,7 +1049,7 @@ export function ClassroomGames({
     }
   };
 
-  // ---------------- 12. MEMORY FLIP HANDLER ----------------
+  // ---------------- 14. MEMORY FLIP HANDLER ----------------
   const handleMemoryTileClick = (tile: MemoryTile) => {
     if (lockBoard || tile.matchedBy || flippedUids.includes(tile.uid)) return;
 
@@ -986,19 +1105,21 @@ export function ClassroomGames({
     }
   };
 
-  const GAME_TABS: { id: GameKind; number: string; title: string; icon: string }[] = [
-    { id: 'match', number: '1', title: 'Picture Matching', icon: '🖼️' },
-    { id: 'mystery', number: '2', title: 'Mystery Box', icon: '🎁' },
-    { id: 'missing', number: '3', title: "What's Missing?", icon: '❓' },
-    { id: 'wheel', number: '4', title: 'Spin the Wheel', icon: '🎡' },
-    { id: 'maze', number: '6', title: 'Word Maze', icon: '🧩' },
-    { id: 'race', number: '7', title: 'Word Race', icon: '🏎️' },
-    { id: 'sorting', number: '8', title: 'Word Sorting', icon: '🧺' },
-    { id: 'spell', number: '9', title: 'Spell It!', icon: '🔤' },
-    { id: 'taboo', number: '10', title: 'Taboo Words', icon: '🚫' },
-    { id: 'sentence', number: '11', title: 'Build a Sentence', icon: '📝' },
-    { id: 'escape', number: '12', title: 'Escape Room', icon: '🗝️' },
-    { id: 'memory', number: '5', title: 'Memory Cards', icon: '🃏' },
+  const ALL_GAMES: { id: GameKind; number: string; title: string; subtitle: string; icon: string }[] = [
+    { id: 'bubble', number: '1', title: 'Bubble Pop', subtitle: 'Bắn Bong Bóng / Trái Cây', icon: '🎈' },
+    { id: 'race', number: '2', title: 'Grand Prix', subtitle: 'Đua Xe Đội A vs Đội B', icon: '🏎️' },
+    { id: 'scramble', number: '3', title: 'Scramble', subtitle: 'Ghép Chữ Xáo Trộn', icon: '🧩' },
+    { id: 'match', number: '4', title: 'Picture Matching', subtitle: 'Nối Tranh Siêu Tốc', icon: '🖼️' },
+    { id: 'mystery', number: '5', title: 'Mystery Box', subtitle: 'Hộp Quà Bí Mật', icon: '🎁' },
+    { id: 'missing', number: '6', title: "What's Missing?", subtitle: 'Bức Tranh Biến Mất', icon: '❓' },
+    { id: 'wheel', number: '7', title: 'Spin the Wheel', subtitle: 'Vòng Quay May Mắn', icon: '🎡' },
+    { id: 'maze', number: '8', title: 'Word Maze', subtitle: 'Mê Cung Từ Vựng', icon: '🐰' },
+    { id: 'sorting', number: '9', title: 'Word Sorting', subtitle: 'Phân Loại Từ Vựng', icon: '🧺' },
+    { id: 'spell', number: '10', title: 'Spell It!', subtitle: 'Thử Tài Đánh Vần', icon: '🔤' },
+    { id: 'taboo', number: '11', title: 'Taboo Words', subtitle: 'Đoán Từ Cấm', icon: '🚫' },
+    { id: 'sentence', number: '12', title: 'Build Sentence', subtitle: 'Xếp Từ Thành Câu', icon: '📝' },
+    { id: 'escape', number: '13', title: 'Escape Room', subtitle: 'Phòng Thoát Hiểm', icon: '🗝️' },
+    { id: 'memory', number: '14', title: 'Memory Cards', subtitle: 'Lật Bài Trí Nhớ', icon: '🃏' },
   ];
 
   return (
@@ -1007,7 +1128,7 @@ export function ClassroomGames({
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
           <p className="text-sm text-slate-500 font-medium">
-            Bộ 12 Trò Chơi Tương Tác Lớp Học (Versus Mode) · Thi Đấu Hai Đội Trên Máy Chiếu
+            Bộ 14 Trò Chơi Tương Tác Lớp Học (Versus Mode) · Thi Đấu Hai Đội Trên Màn Hình Máy Chiếu
           </p>
           <h1 className="mt-1 font-display font-bold text-3xl lg:text-4xl tracking-tight text-slate-900">
             Sân Đấu Trò Chơi Từ Vựng
@@ -1059,28 +1180,134 @@ export function ClassroomGames({
         </div>
       </div>
 
-      {/* 12 Game Selection Badges Grid */}
-      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex items-center gap-2 min-w-max">
-          {GAME_TABS.map((tab) => {
-            const isActive = gameKind === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setGameKind(tab.id)}
-                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-2xs ${
-                  isActive
-                    ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs scale-102 ring-2 ring-emerald-500/30'
-                    : 'bg-white text-slate-700 border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50'
-                }`}
-              >
-                <span>{tab.icon}</span>
-                <span>{tab.number}. {tab.title}</span>
-              </button>
-            );
-          })}
+      {/* GAME SELECTOR: SLIDER / GRID VIEW WITH SMOOTH SCROLL */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs font-bold text-slate-600 px-1">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-600" />
+            Danh sách 14 Trò chơi lớp học (Đang chọn: {ALL_GAMES.find((g) => g.id === gameKind)?.title}):
+          </span>
+
+          <div className="flex items-center gap-1.5">
+            {/* Scroll Navigation Buttons for Slider Mode */}
+            {gameMenuMode === 'slider' && (
+              <div className="flex items-center gap-1 mr-2">
+                <button
+                  type="button"
+                  onClick={() => scrollNav('left')}
+                  className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
+                  title="Cuộn sang trái"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollNav('right')}
+                  className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
+                  title="Cuộn sang phải"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Toggle View Mode Button */}
+            <button
+              type="button"
+              onClick={() => setGameMenuMode(gameMenuMode === 'slider' ? 'grid' : 'slider')}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs cursor-pointer"
+            >
+              {gameMenuMode === 'slider' ? (
+                <>
+                  <Grid className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>⊞ Mở tất cả (Dạng lưới)</span>
+                </>
+              ) : (
+                <>
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>↔️ Dạng thanh trượt</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
+
+        {/* View Mode 1: SLIDER WITH VISIBLE STYLED SCROLLBAR */}
+        {gameMenuMode === 'slider' ? (
+          <div className="relative p-2.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-2xs">
+            <div
+              ref={scrollNavRef}
+              className="flex items-center gap-2 overflow-x-auto pb-2 scroll-smooth cursor-grab active:cursor-grabbing"
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#10B981 #E2E8F0',
+              }}
+            >
+              {ALL_GAMES.map((tab) => {
+                const isActive = gameKind === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setGameKind(tab.id)}
+                    className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-2xs ${
+                      isActive
+                        ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-xs scale-102 ring-2 ring-emerald-500/30'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50'
+                    }`}
+                  >
+                    <span className="text-base">{tab.icon}</span>
+                    <div className="text-left">
+                      <div className="leading-tight">{tab.number}. {tab.title}</div>
+                      <div className={`text-[10px] font-normal ${isActive ? 'text-emerald-100' : 'text-slate-400'}`}>
+                        {tab.subtitle}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          /* View Mode 2: EXPANDED GRID VIEW (ALL 14 GAMES VISIBLE AT ONCE) */
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 shadow-xs animate-fade-in">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
+              {ALL_GAMES.map((tab) => {
+                const isActive = gameKind === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setGameKind(tab.id);
+                      setGameMenuMode('slider');
+                    }}
+                    className={`p-3 rounded-xl text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer shadow-2xs border ${
+                      isActive
+                        ? 'bg-emerald-600 text-white border-emerald-700 ring-2 ring-emerald-400 shadow-sm'
+                        : 'bg-white text-slate-800 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl">{tab.icon}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        #{tab.number}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="font-extrabold text-xs leading-snug">{tab.title}</div>
+                      <div className={`text-[10px] line-clamp-1 ${isActive ? 'text-emerald-100' : 'text-slate-500'}`}>
+                        {tab.subtitle}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Versus Scoreboard */}
@@ -1163,12 +1390,276 @@ export function ClassroomGames({
       </section>
 
       {/* GAME ARENA */}
-      <main className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs min-h-[420px] flex flex-col justify-center">
+      <main className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs min-h-[440px] flex flex-col justify-center">
 
-        {/* ---------------- 1. PICTURE MATCHING ARENA ---------------- */}
+        {/* ---------------- 1. BUBBLE POP / THU HOẠCH TRÁI CÂY ---------------- */}
+        {gameKind === 'bubble' && currentBubbleTarget && (
+          <div className="max-w-4xl mx-auto w-full space-y-6">
+            {/* Top Bar with Audio & Theme Toggle */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-sky-50 border border-sky-200 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handlePlayCurrentBubbleAudio}
+                  className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Volume2 className="w-4 h-4 animate-bounce" />
+                  <span>🔊 Bấm để nghe lại phát âm</span>
+                </button>
+                <span className="text-xs font-bold text-sky-950">
+                  Từ #{bubbleIdx + 1}/{bubbleQueue.length}
+                </span>
+              </div>
+
+              {/* Theme Toggle: Bong bóng vs Trái cây */}
+              <div className="inline-flex items-center p-0.5 rounded-xl bg-white border border-sky-200 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setBubbleTheme('bubble')}
+                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
+                    bubbleTheme === 'bubble' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600'
+                  }`}
+                >
+                  🎈 Bong bóng
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBubbleTheme('fruit')}
+                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
+                    bubbleTheme === 'fruit' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600'
+                  }`}
+                >
+                  🍎 Thu hoạch trái cây
+                </button>
+              </div>
+            </div>
+
+            {/* Floating Bubbles / Fruits Stage */}
+            <div className="relative min-h-[300px] sm:min-h-[340px] rounded-3xl bg-gradient-to-b from-sky-100/60 via-indigo-50/40 to-emerald-50/50 border-2 border-sky-200 p-6 flex flex-wrap items-center justify-center gap-4 sm:gap-6 overflow-hidden shadow-inner">
+              {bubbleChoices.map((card, i) => {
+                const isPopped = poppedIds.includes(card.id);
+                const floatDelays = ['0s', '0.4s', '0.8s', '1.2s', '0.6s'];
+                const fruits = ['🍎', '🍊', '🍓', '🍇', '🍉'];
+                const fruitEmoji = fruits[i % fruits.length];
+
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    disabled={isPopped}
+                    onClick={() => handleBubbleClick(card)}
+                    className={`relative rounded-3xl p-4 transition-all flex flex-col items-center justify-center cursor-pointer shadow-md group ${
+                      isPopped
+                        ? 'scale-0 opacity-0 transition-all duration-300'
+                        : bubbleTheme === 'bubble'
+                        ? 'w-36 h-36 sm:w-44 sm:h-44 bg-gradient-to-tr from-sky-400/80 via-white/90 to-sky-300/80 border-4 border-sky-300 hover:scale-108 hover:shadow-xl'
+                        : 'w-36 h-36 sm:w-44 sm:h-44 bg-gradient-to-tr from-emerald-100 via-white to-amber-100 border-4 border-emerald-300 hover:scale-108 hover:shadow-xl'
+                    }`}
+                    style={{
+                      animation: isPopped ? 'none' : `bounce 2.6s ease-in-out infinite alternate ${floatDelays[i % floatDelays.length]}`,
+                    }}
+                  >
+                    {/* Specular Glint */}
+                    <div className="absolute top-3 left-4 w-5 h-2.5 rounded-full bg-white/70 rotate-[-25deg]" />
+
+                    {bubbleTheme === 'fruit' && (
+                      <span className="text-xl sm:text-2xl mb-1">{fruitEmoji}</span>
+                    )}
+
+                    {/* Image icon preview */}
+                    <div className="w-16 h-14 sm:w-20 sm:h-16 rounded-xl bg-white/80 p-1 mb-1.5 flex items-center justify-center overflow-hidden border border-slate-200/50 shadow-2xs">
+                      <ResilientImage
+                        src={card.imageDataUrl}
+                        alt={card.word}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+
+                    <span className="font-display font-black text-sm sm:text-base text-slate-900 group-hover:text-emerald-700 transition-colors px-1 text-center">
+                      {card.word}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- 2. GRAND PRIX RACE ARENA ---------------- */}
+        {gameKind === 'race' && currentRaceTarget && (
+          <div className="max-w-4xl mx-auto w-full space-y-6">
+            {/* Dual Racetrack */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-slate-900 text-white space-y-4 shadow-md">
+              {/* Lane A */}
+              <div>
+                <div className="flex justify-between text-xs font-bold text-sky-300 mb-1">
+                  <span>🏎️ {settings.teamAName} (Đội Xanh)</span>
+                  <span>{racePosA * 20}% Về đích</span>
+                </div>
+                <div className="h-10 bg-slate-800 rounded-xl relative overflow-hidden flex items-center px-2 border border-slate-700">
+                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-repeating-linear-gradient-45 from-white from-[0] to-black to-[10px] opacity-40" />
+                  <div
+                    className="absolute transition-all duration-500 ease-out flex items-center gap-1"
+                    style={{ left: `calc(${racePosA * 18}% + 4px)` }}
+                  >
+                    <span className="text-2xl sm:text-3xl">🏎️</span>
+                    <span className="text-[10px] font-bold bg-[#0284C7] px-1.5 py-0.5 rounded text-white shadow">
+                      A
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lane B */}
+              <div>
+                <div className="flex justify-between text-xs font-bold text-rose-300 mb-1">
+                  <span>🏎️ {settings.teamBName} (Đội Đỏ)</span>
+                  <span>{racePosB * 20}% Về đích</span>
+                </div>
+                <div className="h-10 bg-slate-800 rounded-xl relative overflow-hidden flex items-center px-2 border border-slate-700">
+                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-repeating-linear-gradient-45 from-white from-[0] to-black to-[10px] opacity-40" />
+                  <div
+                    className="absolute transition-all duration-500 ease-out flex items-center gap-1"
+                    style={{ left: `calc(${racePosB * 18}% + 4px)` }}
+                  >
+                    <span className="text-2xl sm:text-3xl">🏎️</span>
+                    <span className="text-[10px] font-bold bg-rose-600 px-1.5 py-0.5 rounded text-white shadow">
+                      B
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Question Card: Nhìn hình HOẶC nghe phát âm */}
+            <div className="flex flex-col sm:flex-row items-center gap-6 p-5 rounded-2xl bg-slate-50 border border-slate-200">
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-40 h-32 rounded-xl bg-white border border-slate-200 p-2 flex items-center justify-center shrink-0 shadow-2xs">
+                  <ResilientImage
+                    src={currentRaceTarget.imageDataUrl}
+                    alt={currentRaceTarget.word}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    speakVocabulary(currentRaceTarget.word, {
+                      audioDataUrl: currentRaceTarget.audioDataUrl,
+                      rate: settings.speechRate,
+                      accent: settings.voiceAccent,
+                    })
+                  }
+                  className="px-3 py-1 rounded-lg bg-sky-100 hover:bg-sky-200 text-sky-800 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  Nghe phát âm
+                </button>
+              </div>
+
+              <div className="flex-1 space-y-3 w-full">
+                <p className="text-xs font-bold text-slate-700">
+                  Nhìn hình hoặc nghe phát âm, chọn từ tiếng Anh đúng để rồ ga tăng tốc (+15 điểm):
+                </p>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {raceChoices.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => handleRaceAnswer(c)}
+                      className="py-3 px-4 rounded-xl border border-slate-300 bg-white hover:border-emerald-500 hover:bg-emerald-50 font-bold text-sm text-slate-800 transition-colors shadow-2xs cursor-pointer text-center"
+                    >
+                      {c.word}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- 3. SCRAMBLE GHÉP CHỮ ARENA ---------------- */}
+        {gameKind === 'scramble' && currentScrambleCard && (
+          <div className="max-w-xl mx-auto w-full space-y-6 text-center">
+            {/* Clue Card */}
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-44 h-36 rounded-2xl border border-slate-200 bg-slate-50 p-2 flex items-center justify-center shadow-xs">
+                <ResilientImage
+                  src={currentScrambleCard.imageDataUrl}
+                  alt={currentScrambleCard.word}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  speakVocabulary(currentScrambleCard.word, {
+                    audioDataUrl: currentScrambleCard.audioDataUrl,
+                    rate: settings.speechRate,
+                    accent: settings.voiceAccent,
+                  })
+                }
+                className="px-3 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Volume2 className="w-3.5 h-3.5" />
+                Nghe phát âm từ này
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 font-medium">
+              Nghĩa tiếng Việt: <strong className="text-slate-800">{currentScrambleCard.meaning}</strong> · Phiên âm: <span className="font-mono">{currentScrambleCard.phonetic}</span>
+            </p>
+
+            {/* Built Slots */}
+            <div className="flex flex-wrap items-center justify-center gap-2 min-h-[52px]">
+              {scrambleBuilt.map((l) => (
+                <div
+                  key={l.id}
+                  className={`w-11 h-12 rounded-xl flex items-center justify-center font-display font-extrabold text-xl shadow-xs border-2 ${
+                    scrambleFeedback === 'correct'
+                      ? 'border-emerald-500 bg-emerald-100 text-emerald-800'
+                      : scrambleFeedback === 'wrong'
+                      ? 'border-rose-500 bg-rose-100 text-rose-800'
+                      : 'border-slate-300 bg-white text-slate-800'
+                  }`}
+                >
+                  {l.char}
+                </div>
+              ))}
+              {Array.from({ length: Math.max(0, currentScrambleCard.word.replace(/[^A-Za-z]/g, '').length - scrambleBuilt.length) }).map((_, i) => (
+                <div
+                  key={`empty-${i}`}
+                  className="w-11 h-12 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 flex items-center justify-center text-slate-400"
+                >
+                  _
+                </div>
+              ))}
+            </div>
+
+            {/* Letter Tiles to click */}
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+              {scrambleLetters.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  disabled={l.used || scrambleFeedback !== 'idle'}
+                  onClick={() => handlePickScrambleLetter(l)}
+                  className={`w-11 h-12 rounded-xl font-display font-extrabold text-lg transition-all flex items-center justify-center cursor-pointer ${
+                    l.used
+                      ? 'border border-slate-200 bg-slate-100 text-slate-300 cursor-not-allowed'
+                      : 'border-2 border-emerald-500 bg-white hover:bg-emerald-50 text-slate-800 shadow-xs hover:scale-105'
+                  }`}
+                >
+                  {l.char}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- 4. PICTURE MATCHING ARENA ---------------- */}
         {gameKind === 'match' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center max-w-4xl mx-auto w-full">
-            {/* Left Column: Pictures */}
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                 1. Chọn Tranh minh họa:
@@ -1212,7 +1703,6 @@ export function ClassroomGames({
               </div>
             </div>
 
-            {/* Right Column: Words */}
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                 2. Nối với Từ tiếng Anh:
@@ -1250,7 +1740,7 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 2. MYSTERY BOX ARENA ---------------- */}
+        {/* ---------------- 5. MYSTERY BOX ARENA ---------------- */}
         {gameKind === 'mystery' && (
           <div className="max-w-4xl mx-auto w-full space-y-6">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-4">
@@ -1277,7 +1767,6 @@ export function ClassroomGames({
               ))}
             </div>
 
-            {/* Active Box Modal Challenge */}
             {activeMysteryBox && (
               <div className="p-6 rounded-2xl bg-amber-50 border-2 border-amber-300 space-y-4 animate-fade-in shadow-md">
                 <div className="flex items-center justify-between">
@@ -1324,10 +1813,9 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 3. WHAT'S MISSING? ARENA ---------------- */}
+        {/* ---------------- 6. WHAT'S MISSING? ARENA ---------------- */}
         {gameKind === 'missing' && (
           <div className="max-w-4xl mx-auto w-full space-y-6">
-            {/* Stage Progress Banner */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold">
               <span>
                 {missingPhase === 'remember' && (
@@ -1360,7 +1848,6 @@ export function ClassroomGames({
               )}
             </div>
 
-            {/* 4 Cards Display */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {missingCards.map((card) => {
                 const isTarget = card.id === missingTargetCard?.id;
@@ -1401,7 +1888,6 @@ export function ClassroomGames({
               })}
             </div>
 
-            {/* Options during Guess Phase */}
             {missingPhase === 'guess' && (
               <div className="space-y-3 pt-2">
                 <p className="text-xs font-bold text-center text-slate-600">
@@ -1424,15 +1910,12 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 4. SPIN THE WHEEL ARENA ---------------- */}
+        {/* ---------------- 7. SPIN THE WHEEL ARENA ---------------- */}
         {gameKind === 'wheel' && (
           <div className="max-w-4xl mx-auto w-full flex flex-col md:flex-row items-center justify-center gap-8">
-            {/* The Wheel */}
             <div className="relative flex flex-col items-center shrink-0">
-              {/* Pointer */}
               <div className="w-0 h-0 border-l-[14px] border-l-transparent border-r-[14px] border-r-transparent border-t-[24px] border-t-rose-600 z-10 -mb-2 shadow-sm" />
 
-              {/* Wheel SVG */}
               <div
                 className="w-64 h-64 sm:w-72 sm:h-72 rounded-full border-4 border-slate-800 shadow-xl overflow-hidden"
                 style={{
@@ -1479,7 +1962,6 @@ export function ClassroomGames({
                 </svg>
               </div>
 
-              {/* Spin Button */}
               <button
                 type="button"
                 onClick={handleSpinWheel}
@@ -1490,7 +1972,6 @@ export function ClassroomGames({
               </button>
             </div>
 
-            {/* Wheel Challenge Card */}
             <div className="flex-1 w-full max-w-md">
               {wheelWonPrize && wheelCurrentCard ? (
                 <div className="p-5 rounded-2xl bg-slate-50 border-2 border-emerald-400 space-y-4 shadow-sm animate-fade-in">
@@ -1536,10 +2017,9 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 5. WORD MAZE ARENA ---------------- */}
+        {/* ---------------- 8. WORD MAZE ARENA ---------------- */}
         {gameKind === 'maze' && currentMazeCard && (
           <div className="max-w-3xl mx-auto w-full space-y-6">
-            {/* Maze Journey Path */}
             <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200">
               {[0, 1, 2, 3, 4, 5].map((step) => {
                 const isPassed = mazeStep > step;
@@ -1565,7 +2045,6 @@ export function ClassroomGames({
               })}
             </div>
 
-            {/* Current Checkpoint Challenge */}
             <div className="flex flex-col sm:flex-row items-center gap-6 p-6 rounded-2xl bg-white border-2 border-emerald-300 shadow-sm">
               <div className="w-44 h-36 rounded-xl border border-slate-200 bg-slate-50 p-2 flex items-center justify-center shrink-0">
                 <ResilientImage
@@ -1602,87 +2081,9 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 6. WORD RACE ARENA ---------------- */}
-        {gameKind === 'race' && currentRaceTarget && (
-          <div className="max-w-4xl mx-auto w-full space-y-6">
-            {/* Dual Racetrack */}
-            <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-4 shadow-md">
-              {/* Lane A */}
-              <div>
-                <div className="flex justify-between text-xs font-bold text-sky-300 mb-1">
-                  <span>🏎️ {settings.teamAName} (Đội Xanh)</span>
-                  <span>{racePosA * 20}% Về đích</span>
-                </div>
-                <div className="h-9 bg-slate-800 rounded-xl relative overflow-hidden flex items-center px-2 border border-slate-700">
-                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-repeating-linear-gradient-45 from-white from-[0] to-black to-[10px] opacity-40" />
-                  <div
-                    className="absolute transition-all duration-500 ease-out flex items-center gap-1"
-                    style={{ left: `calc(${racePosA * 18}% + 4px)` }}
-                  >
-                    <span className="text-2xl">🏎️</span>
-                    <span className="text-[10px] font-bold bg-[#0284C7] px-1.5 py-0.5 rounded text-white shadow">
-                      A
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Lane B */}
-              <div>
-                <div className="flex justify-between text-xs font-bold text-rose-300 mb-1">
-                  <span>🏎️ {settings.teamBName} (Đội Đỏ)</span>
-                  <span>{racePosB * 20}% Về đích</span>
-                </div>
-                <div className="h-9 bg-slate-800 rounded-xl relative overflow-hidden flex items-center px-2 border border-slate-700">
-                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-repeating-linear-gradient-45 from-white from-[0] to-black to-[10px] opacity-40" />
-                  <div
-                    className="absolute transition-all duration-500 ease-out flex items-center gap-1"
-                    style={{ left: `calc(${racePosB * 18}% + 4px)` }}
-                  >
-                    <span className="text-2xl">🏎️</span>
-                    <span className="text-[10px] font-bold bg-rose-600 px-1.5 py-0.5 rounded text-white shadow">
-                      B
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Question Card */}
-            <div className="flex flex-col sm:flex-row items-center gap-6 p-5 rounded-2xl bg-slate-50 border border-slate-200">
-              <div className="w-40 h-32 rounded-xl bg-white border border-slate-200 p-2 flex items-center justify-center shrink-0 shadow-2xs">
-                <ResilientImage
-                  src={currentRaceTarget.imageDataUrl}
-                  alt={currentRaceTarget.word}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-
-              <div className="flex-1 space-y-3 w-full">
-                <p className="text-xs font-bold text-slate-700">
-                  Chọn từ tiếng Anh đúng để rồ ga tăng tốc:
-                </p>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {raceChoices.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => handleRaceAnswer(c)}
-                      className="py-3 px-4 rounded-xl border border-slate-300 bg-white hover:border-emerald-500 hover:bg-emerald-50 font-bold text-sm text-slate-800 transition-colors shadow-2xs cursor-pointer text-center"
-                    >
-                      {c.word}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ---------------- 7. WORD SORTING ARENA ---------------- */}
+        {/* ---------------- 9. WORD SORTING ARENA ---------------- */}
         {gameKind === 'sorting' && currentSortCard && (
           <div className="max-w-3xl mx-auto w-full space-y-6">
-            {/* Target Card to sort */}
             <div className="text-center space-y-3">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                 Thẻ cần phân loại (#{sortIdx + 1}/{sortQueue.length}):
@@ -1699,7 +2100,6 @@ export function ClassroomGames({
               </div>
             </div>
 
-            {/* 2 Sorting Baskets */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"
@@ -1732,10 +2132,9 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 8. SPELL IT ARENA ---------------- */}
+        {/* ---------------- 10. SPELL IT ARENA ---------------- */}
         {gameKind === 'spell' && currentSpellCard && (
           <div className="max-w-xl mx-auto w-full space-y-6 text-center">
-            {/* Clue Card */}
             <div className="w-44 h-36 rounded-2xl border border-slate-200 bg-slate-50 p-2 mx-auto flex items-center justify-center shadow-xs">
               <ResilientImage
                 src={currentSpellCard.imageDataUrl}
@@ -1748,7 +2147,6 @@ export function ClassroomGames({
               Nghĩa: <strong className="text-slate-800">{currentSpellCard.meaning}</strong> · Phiên âm: <span className="font-mono">{currentSpellCard.phonetic}</span>
             </p>
 
-            {/* Built Slots */}
             <div className="flex flex-wrap items-center justify-center gap-2 min-h-[52px]">
               {spellBuilt.map((l) => (
                 <div
@@ -1774,7 +2172,6 @@ export function ClassroomGames({
               ))}
             </div>
 
-            {/* Letter Tiles to click */}
             <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
               {spellLetters.map((l) => (
                 <button
@@ -1795,10 +2192,9 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 9. TABOO WORDS ARENA ---------------- */}
+        {/* ---------------- 11. TABOO WORDS ARENA ---------------- */}
         {gameKind === 'taboo' && currentTabooCard && (
           <div className="max-w-md mx-auto w-full space-y-5">
-            {/* Card Header & Timer */}
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                 Thẻ Taboo #{tabooIdx + 1}/{tabooQueue.length}
@@ -1819,7 +2215,6 @@ export function ClassroomGames({
               </div>
             </div>
 
-            {/* Giant Taboo Card */}
             <div className="p-6 rounded-3xl border-4 border-amber-400 bg-gradient-to-b from-amber-50 to-orange-50/40 text-center space-y-4 shadow-md">
               <div>
                 <span className="text-[11px] font-bold text-amber-800 uppercase tracking-widest block mb-1">
@@ -1833,7 +2228,6 @@ export function ClassroomGames({
                 </p>
               </div>
 
-              {/* Forbidden Words Box */}
               <div className="p-4 rounded-2xl bg-white border-2 border-rose-300 space-y-2">
                 <span className="text-xs font-bold text-rose-600 flex items-center justify-center gap-1.5 uppercase tracking-wider">
                   🚫 3 TỪ CẤM (TUYỆT ĐỐI KHÔNG NÓI):
@@ -1851,7 +2245,6 @@ export function ClassroomGames({
               </div>
             </div>
 
-            {/* Score Action Buttons for Teacher */}
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
@@ -1871,7 +2264,7 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 10. BUILD A SENTENCE ARENA ---------------- */}
+        {/* ---------------- 12. BUILD A SENTENCE ARENA ---------------- */}
         {gameKind === 'sentence' && currentSentenceCard && (
           <div className="max-w-2xl mx-auto w-full space-y-6 text-center">
             <div>
@@ -1883,7 +2276,6 @@ export function ClassroomGames({
               </p>
             </div>
 
-            {/* Sentence Target Zone */}
             <div className="min-h-[64px] p-4 rounded-2xl border-2 border-dashed border-emerald-400 bg-emerald-50/50 flex flex-wrap items-center justify-center gap-2">
               {builtSentence.length === 0 ? (
                 <span className="text-xs text-emerald-800/60 font-medium italic">
@@ -1901,7 +2293,6 @@ export function ClassroomGames({
               )}
             </div>
 
-            {/* Shuffled Word Blocks to click */}
             <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
               {sentenceWords.map((w) => (
                 <button
@@ -1930,10 +2321,9 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 11. ESCAPE ROOM ARENA ---------------- */}
+        {/* ---------------- 13. ESCAPE ROOM ARENA ---------------- */}
         {gameKind === 'escape' && escapeCard && (
           <div className="max-w-2xl mx-auto w-full space-y-6">
-            {/* Escape Room Progress Indicator */}
             <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-900 text-white">
               <div className="flex items-center gap-2">
                 <Key className="w-5 h-5 text-amber-400 animate-pulse" />
@@ -1959,7 +2349,6 @@ export function ClassroomGames({
               </div>
             </div>
 
-            {/* Room Clue */}
             <div className="p-6 rounded-2xl bg-white border-2 border-amber-300 space-y-4 shadow-sm text-center">
               <div className="w-48 h-36 rounded-xl border border-slate-200 bg-slate-50 p-2 mx-auto flex items-center justify-center">
                 <ResilientImage
@@ -1990,7 +2379,7 @@ export function ClassroomGames({
           </div>
         )}
 
-        {/* ---------------- 12. MEMORY FLIP ARENA ---------------- */}
+        {/* ---------------- 14. MEMORY FLIP ARENA ---------------- */}
         {gameKind === 'memory' && (
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 gap-3 max-w-2xl mx-auto w-full">
             {memoryTiles.map((tile) => {

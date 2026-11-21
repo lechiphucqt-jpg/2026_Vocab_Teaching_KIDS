@@ -13,7 +13,8 @@ export type GameKind =
   | 'sentence'
   | 'escape'
   | 'memory'
-  | 'bubble';
+  | 'bubble'
+  | 'scramble';
 
 export type AIModelId = 'gemini-3-flash-preview' | 'gemini-3-pro-preview' | 'gemini-2.5-flash';
 
