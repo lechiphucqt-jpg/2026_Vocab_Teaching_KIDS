@@ -211,6 +211,8 @@ export function ClassroomGames({
   const [wheelWonPrize, setWheelWonPrize] = useState<typeof WHEEL_PRIZES[0] | null>(null);
   const [wheelCurrentCard, setWheelCurrentCard] = useState<VocabCard | null>(null);
   const [wheelOptions, setWheelOptions] = useState<VocabCard[]>([]);
+  const [wheelSpinSpeed, setWheelSpinSpeed] = useState<'fast' | 'normal'>('fast');
+  const [wheelSpinDuration, setWheelSpinDuration] = useState<number>(900);
 
   // ---------------- 8. WORD MAZE ----------------
   const [mazeStep, setMazeStep] = useState(0);
@@ -222,6 +224,9 @@ export function ClassroomGames({
   const [sortIdx, setSortIdx] = useState(0);
   const [sortedBasketA, setSortedBasketA] = useState<VocabCard[]>([]);
   const [sortedBasketB, setSortedBasketB] = useState<VocabCard[]>([]);
+  const [basketAName, setBasketAName] = useState('Giỏ Chữ Cái A – M');
+  const [basketBName, setBasketBName] = useState('Giỏ Chữ Cái N – Z');
+  const [sortRule, setSortRule] = useState<'alpha' | 'free'>('alpha');
 
   // ---------------- 10. SPELL IT! ----------------
   const [spellQueue, setSpellQueue] = useState<VocabCard[]>([]);
@@ -278,6 +283,7 @@ export function ClassroomGames({
     { id: 'alligators', name: 'Alligators', avatar: '🐊', color: '#4F46E5', barColor: 'bg-indigo-600', score: 0 },
   ], []);
   const [teamRaceSquads, setTeamRaceSquads] = useState<AnimalSquad[]>(DEFAULT_SQUADS);
+  const [teamRaceSquadCount, setTeamRaceSquadCount] = useState<number>(4);
   const [activeSquadIdx, setActiveSquadIdx] = useState(0);
   const [teamRaceCurrentCard, setTeamRaceCurrentCard] = useState<VocabCard | null>(null);
   const [teamRaceChoices, setTeamRaceChoices] = useState<VocabCard[]>([]);
@@ -908,7 +914,7 @@ export function ClassroomGames({
   };
 
   // ---------------- 7. SPIN THE WHEEL HANDLER ----------------
-  const handleSpinWheel = () => {
+  const handleSpinWheel = (speed: 'fast' | 'normal' = wheelSpinSpeed) => {
     if (isWheelSpinning) return;
     setIsWheelSpinning(true);
     setWheelWonPrize(null);
@@ -920,7 +926,11 @@ export function ClassroomGames({
     const chosenPrize = WHEEL_PRIZES[randomIdx];
 
     const segmentAngle = 360 / segmentCount;
-    const extraSpins = 5 * 360;
+    const isFast = speed === 'fast';
+    const extraSpins = isFast ? 12 * 360 : 5 * 360;
+    const durationMs = isFast ? 900 : 2500;
+    setWheelSpinDuration(durationMs);
+
     const targetAngle = extraSpins + (segmentCount - 1 - randomIdx) * segmentAngle + segmentAngle / 2;
     const finalRotation = wheelRotation + targetAngle;
     setWheelRotation(finalRotation);
@@ -934,7 +944,7 @@ export function ClassroomGames({
       setWheelCurrentCard(randomCard);
       setWheelOptions(buildOptionsForCard(randomCard, poolCards, 4));
       setBannerText(`Vòng quay dừng ở: ${chosenPrize.label}! Hãy trả lời câu hỏi để rinh điểm.`);
-    }, 3200);
+    }, durationMs);
   };
 
   const handleAnswerWheelQuestion = (chosenCard: VocabCard) => {
@@ -1002,9 +1012,15 @@ export function ClassroomGames({
   const handleSortIntoBasket = (basket: 'A' | 'B') => {
     if (!currentSortCard || isFinished) return;
 
-    const firstLetter = currentSortCard.word.trim().toUpperCase()[0];
-    const isFirstHalf = firstLetter >= 'A' && firstLetter <= 'M';
-    const isCorrect = (basket === 'A' && isFirstHalf) || (basket === 'B' && !isFirstHalf);
+    let isCorrect = true;
+    if (sortRule === 'alpha') {
+      const firstLetter = currentSortCard.word.trim().toUpperCase()[0];
+      const isFirstHalf = firstLetter >= 'A' && firstLetter <= 'M';
+      isCorrect = (basket === 'A' && isFirstHalf) || (basket === 'B' && !isFirstHalf);
+    } else {
+      // Free classroom discussion mode: teacher & students sort words freely
+      isCorrect = true;
+    }
 
     if (isCorrect) {
       playClassroomSfx('match', settings.soundEffectsEnabled);
@@ -1025,12 +1041,14 @@ export function ClassroomGames({
         setBannerText(`🎉 Tuyệt đỉnh! Đã phân loại thành công toàn bộ kho từ vựng!`);
       } else {
         setSortIdx(nextIdx);
-        setBannerText(`Đúng giỏ rồi! +10 điểm cho ${nextTeamName(activeTeam)}.`);
+        const targetName = basket === 'A' ? basketAName : basketBName;
+        setBannerText(`Đã đưa vào "${targetName}"! +10 điểm cho ${nextTeamName(activeTeam)}.`);
       }
     } else {
       playClassroomSfx('wrong', settings.soundEffectsEnabled);
       const nextTeam: TeamKey = activeTeam === 'A' ? 'B' : 'A';
       setActiveTeam(nextTeam);
+      const firstLetter = currentSortCard.word.trim().toUpperCase()[0];
       setBannerText(`Nhầm giỏ rồi! Từ "${currentSortCard.word}" bắt đầu bằng chữ "${firstLetter}". Đổi lượt sang ${nextTeamName(nextTeam)}.`);
     }
   };
@@ -1296,7 +1314,7 @@ export function ClassroomGames({
         playClassroomSfx('victory', settings.soundEffectsEnabled);
         setBannerText(`🏆 ĐỘI ${currentSquad.name.toUpperCase()} ${currentSquad.avatar} ĐÃ ĐẠT 10 ĐIỂM VÀ GIÀNH CHIẾN THẮNG CHUNG CUỘC!`);
       } else {
-        const nextSquadIdx = (activeSquadIdx + 1) % teamRaceSquads.length;
+        const nextSquadIdx = (activeSquadIdx + 1) % teamRaceSquadCount;
         setActiveSquadIdx(nextSquadIdx);
         const shuffled = shuffleArray(poolCards);
         const nextTarget = shuffled[0] || poolCards[0];
@@ -1363,7 +1381,6 @@ export function ClassroomGames({
 
   // ---------------- 17. SURVEY SLAM / GAME SHOW HANDLERS ----------------
   const handleOpenSurveyItem = (item: SurveyItem) => {
-    if (item.isRevealed) return;
     playClassroomSfx('flip', settings.soundEffectsEnabled);
     setActiveSurveyItem(item);
   };
@@ -2352,7 +2369,7 @@ export function ClassroomGames({
                 className="w-64 h-64 sm:w-72 sm:h-72 rounded-full border-4 border-slate-800 shadow-xl overflow-hidden"
                 style={{
                   transform: `rotate(${wheelRotation}deg)`,
-                  transition: isWheelSpinning ? 'transform 3.2s cubic-bezier(0.17, 0.67, 0.12, 0.99)' : 'none',
+                  transition: isWheelSpinning ? `transform ${wheelSpinDuration}ms cubic-bezier(0.12, 0.85, 0.25, 1.0)` : 'none',
                 }}
               >
                 <svg viewBox="0 0 100 100" className="w-full h-full">
@@ -2394,14 +2411,30 @@ export function ClassroomGames({
                 </svg>
               </div>
 
-              <button
-                type="button"
-                onClick={handleSpinWheel}
-                disabled={isWheelSpinning}
-                className="mt-4 py-2.5 px-6 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:opacity-95 text-white font-bold text-sm shadow-md transition-all cursor-pointer disabled:opacity-50"
-              >
-                {isWheelSpinning ? '🎡 Đang quay...' : '🎡 Bấm QUAY BÁNH XE'}
-              </button>
+              {/* Fast Spin Buttons */}
+              <div className="flex flex-col items-center gap-2 mt-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSpinWheel('fast')}
+                    disabled={isWheelSpinning}
+                    className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:opacity-95 text-slate-950 font-black text-sm shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 ring-2 ring-amber-300"
+                  >
+                    <Zap className="w-4 h-4 fill-slate-950" />
+                    <span>{isWheelSpinning ? '⚡ Đang quay siêu tốc...' : '⚡ QUAY THẬT NHANH (0.9s)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSpinWheel('normal')}
+                    disabled={isWheelSpinning}
+                    className="py-2.5 px-4 rounded-xl bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    🎡 Quay Thường
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium">⚡ Chế độ Siêu Tốc: Vòng xoay vút trong 0.9 giây dừng dứt khoát</p>
+              </div>
             </div>
 
             <div className="flex-1 w-full max-w-md">
@@ -2532,6 +2565,108 @@ export function ClassroomGames({
               </div>
             </div>
 
+            {/* Custom Basket Settings */}
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-2.5 max-w-lg mx-auto text-left">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                <span className="flex items-center gap-1.5">
+                  <span>🧺 Tự đặt tên cho 02 giỏ phân loại:</span>
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setSortRule('alpha')}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer ${
+                      sortRule === 'alpha' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Tự động chấm A–Z
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSortRule('free')}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer ${
+                      sortRule === 'free' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Tự do thảo luận
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-sky-800 uppercase block">Tên Giỏ 1 (Bên trái):</label>
+                  <input
+                    type="text"
+                    value={basketAName}
+                    onChange={(e) => setBasketAName(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-sky-300 bg-sky-50/50 text-xs font-bold text-sky-950 focus:bg-white focus:outline-sky-500"
+                    placeholder="Tên Giỏ 1..."
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-amber-800 uppercase block">Tên Giỏ 2 (Bên phải):</label>
+                  <input
+                    type="text"
+                    value={basketBName}
+                    onChange={(e) => setBasketBName(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50/50 text-xs font-bold text-amber-950 focus:bg-white focus:outline-amber-500"
+                    placeholder="Tên Giỏ 2..."
+                  />
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[10px]">
+                <span className="text-slate-400 font-medium">Gợi ý nhanh:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBasketAName('Giỏ Chữ Cái A – M');
+                    setBasketBName('Giỏ Chữ Cái N – Z');
+                    setSortRule('alpha');
+                  }}
+                  className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+                >
+                  🔤 A–M / N–Z
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBasketAName('🦁 Động Vật');
+                    setBasketBName('🍎 Đồ Ăn & Đồ Vật');
+                    setSortRule('free');
+                  }}
+                  className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+                >
+                  🦁 Động vật / Đồ vật
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBasketAName('🔵 Số Ít (Singular)');
+                    setBasketBName('🔴 Số Nhiều (Plural)');
+                    setSortRule('free');
+                  }}
+                  className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+                >
+                  🔵 Số ít / Số nhiều
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBasketAName('⭐ Từ Ngắn (≤4 chữ)');
+                    setBasketBName('🌟 Từ Dài (>4 chữ)');
+                    setSortRule('free');
+                  }}
+                  className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+                >
+                  ⭐ Từ ngắn / Từ dài
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"
@@ -2540,7 +2675,7 @@ export function ClassroomGames({
               >
                 <span className="text-3xl block">🧺</span>
                 <span className="font-display font-black text-lg text-sky-900 block">
-                  Giỏ Chữ Cái A – M
+                  {basketAName}
                 </span>
                 <span className="text-xs font-bold text-sky-700 block">
                   Đã chứa: {sortedBasketA.length} từ
@@ -2554,7 +2689,7 @@ export function ClassroomGames({
               >
                 <span className="text-3xl block">🧺</span>
                 <span className="font-display font-black text-lg text-amber-900 block">
-                  Giỏ Chữ Cái N – Z
+                  {basketBName}
                 </span>
                 <span className="text-xs font-bold text-amber-700 block">
                   Đã chứa: {sortedBasketB.length} từ
@@ -2861,8 +2996,8 @@ export function ClassroomGames({
         {/* ---------------- 15. QUIZLET LIVE - TEAM RACE ---------------- */}
         {gameKind === 'team-race' && (
           <div className="space-y-6 max-w-4xl mx-auto w-full">
-            {/* Header banner */}
-            <div className="p-4 rounded-2xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md border border-slate-700">
+            {/* Header banner with Team Count Selector */}
+            <div className="p-4 rounded-2xl bg-slate-900 text-white flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md border border-slate-700">
               <div className="flex items-center gap-2.5">
                 <span className="text-2xl">🏁</span>
                 <div>
@@ -2871,18 +3006,42 @@ export function ClassroomGames({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">Đang trả lời:</span>
-                <span className="px-3 py-1 rounded-full text-xs font-bold bg-white text-slate-900 flex items-center gap-1.5 shadow-2xs">
-                  <span>{teamRaceSquads[activeSquadIdx]?.avatar}</span>
-                  <span>{teamRaceSquads[activeSquadIdx]?.name}</span>
-                </span>
+              {/* Select Number of Teams */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700">
+                  <span className="text-[11px] font-bold text-amber-300 px-1.5">Số đội:</span>
+                  {[2, 3, 4, 6, 8].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => {
+                        setTeamRaceSquadCount(count);
+                        setActiveSquadIdx(0);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        teamRaceSquadCount === count
+                          ? 'bg-amber-400 text-slate-950 shadow-xs scale-105 font-black'
+                          : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                      }`}
+                    >
+                      {count} Đội
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1.5 pl-2 border-l border-slate-700">
+                  <span className="text-xs text-slate-400">Lượt:</span>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-white text-slate-900 flex items-center gap-1.5 shadow-2xs">
+                    <span>{teamRaceSquads[activeSquadIdx]?.avatar}</span>
+                    <span>{teamRaceSquads[activeSquadIdx]?.name}</span>
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* Squads Race Progress Bars (Quizlet Live style) */}
             <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
-              {teamRaceSquads.map((sq, i) => {
+              {teamRaceSquads.slice(0, teamRaceSquadCount).map((sq, i) => {
                 const pct = Math.min(100, (sq.score / 10) * 100);
                 const isCurrent = i === activeSquadIdx;
                 return (
@@ -3126,27 +3285,37 @@ export function ClassroomGames({
                       key={item.id}
                       type="button"
                       onClick={() => handleOpenSurveyItem(item)}
-                      disabled={item.isRevealed}
-                      className={`aspect-[4/3] rounded-2xl border-2 p-3 flex flex-col items-center justify-center transition-all cursor-pointer shadow-md ${
+                      className={`aspect-[4/3] rounded-2xl border-2 p-2.5 flex flex-col items-center justify-center transition-all cursor-pointer shadow-md ${
                         item.isRevealed
                           ? item.awardedTo === 'A'
-                            ? 'border-sky-400 bg-sky-950/80 text-sky-200'
-                            : 'border-rose-400 bg-rose-950/80 text-rose-200'
-                          : 'border-amber-400/80 bg-gradient-to-b from-blue-700 to-indigo-800 hover:from-blue-600 hover:to-indigo-700 hover:scale-102 hover:border-amber-300'
+                            ? 'border-sky-400 bg-sky-950/90 text-sky-200 ring-2 ring-sky-500/40 hover:scale-102'
+                            : 'border-rose-400 bg-rose-950/90 text-rose-200 ring-2 ring-rose-500/40 hover:scale-102'
+                          : 'border-amber-400/80 bg-gradient-to-b from-blue-700 to-indigo-800 hover:from-blue-600 hover:to-indigo-700 hover:scale-103 hover:border-amber-300'
                       }`}
+                      title={item.isRevealed ? 'Bấm để phóng to xem lại hình ảnh' : 'Bấm để mở ô thử thách'}
                     >
                       {item.isRevealed ? (
-                        <div className="flex flex-col items-center justify-center gap-1 text-center">
-                          <span className="text-xs font-black text-amber-300">+{item.points} ĐIỂM</span>
-                          <span className="font-extrabold text-sm text-white">{item.card.word}</span>
-                          <span className="text-[10px] text-slate-300">{item.card.meaning}</span>
+                        <div className="flex flex-col items-center justify-center gap-1 text-center w-full h-full">
+                          <div className="w-14 h-12 rounded-lg bg-white/20 p-1 flex items-center justify-center overflow-hidden shrink-0">
+                            <ResilientImage
+                              src={item.card.imageDataUrl}
+                              alt={item.card.word}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <span className="font-extrabold text-xs text-white leading-tight truncate max-w-[90%]">
+                            {item.card.word}
+                          </span>
+                          <span className="text-[10px] font-black text-amber-300">
+                            +{item.points}đ ({item.awardedTo ? `Đội ${item.awardedTo}` : 'Đã mở'})
+                          </span>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center gap-1">
-                          <span className="font-display font-black text-2xl text-amber-300 drop-shadow-md">
+                          <span className="font-display font-black text-3xl text-amber-300 drop-shadow-md">
                             ${item.points}
                           </span>
-                          <span className="text-[10px] text-indigo-200 uppercase tracking-widest font-bold">
+                          <span className="text-[10px] text-indigo-200 uppercase tracking-widest font-black bg-indigo-950/40 px-2 py-0.5 rounded-full">
                             Chạm để mở
                           </span>
                         </div>
@@ -3157,48 +3326,80 @@ export function ClassroomGames({
               </div>
             </div>
 
-            {/* Active Survey Item Question Popup / Control */}
+            {/* Active Survey Item Lightbox Modal (Centered Dialog on screen) */}
             {activeSurveyItem && (
-              <div className="p-6 rounded-2xl bg-white border-2 border-amber-400 shadow-xl text-center space-y-4 max-w-lg mx-auto animate-fade-in">
-                <span className="inline-block px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 uppercase">
-                  Thử thách ô ${activeSurveyItem.points}
-                </span>
-
-                <div className="w-40 h-32 rounded-xl border border-slate-200 bg-slate-50 p-2 mx-auto flex items-center justify-center">
-                  <ResilientImage
-                    src={activeSurveyItem.card.imageDataUrl}
-                    alt={activeSurveyItem.card.word}
-                    className="w-full h-full object-contain"
-                  />
-                </div>
-
-                <div>
-                  <p className="text-xs text-slate-500 font-semibold mb-1">
-                    Gợi ý nghĩa tiếng Việt: <span className="font-bold text-slate-800">"{activeSurveyItem.card.meaning}"</span>
-                  </p>
-                  <p className="text-lg font-black text-indigo-900">
-                    Đáp án: <span className="text-emerald-700">{activeSurveyItem.card.word}</span>
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-center gap-3 pt-2">
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+                <div className="bg-white rounded-3xl border-4 border-amber-400 p-6 max-w-lg w-full text-center space-y-4 shadow-2xl relative">
+                  {/* Close button */}
                   <button
                     type="button"
-                    onClick={() => handleSurveyMarkResult(true)}
-                    className="py-2.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                    onClick={() => setActiveSurveyItem(null)}
+                    className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors"
+                    title="Đóng (✕)"
                   >
-                    <Check className="w-4 h-4" />
-                    Chính xác (+{activeSurveyItem.points} điểm)
+                    <X className="w-5 h-5" />
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleSurveyMarkResult(false)}
-                    className="py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    <X className="w-4 h-4" />
-                    Báo sai (Strike ✕)
-                  </button>
+                  <span className="inline-block px-4 py-1.5 rounded-full text-xs font-black bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 uppercase tracking-wider shadow-sm">
+                    🌟 Thử Thách Ô ${activeSurveyItem.points} — {activeSurveyItem.category}
+                  </span>
+
+                  {/* Large Image Preview */}
+                  <div className="w-64 h-52 rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 mx-auto flex items-center justify-center shadow-inner">
+                    <ResilientImage
+                      src={activeSurveyItem.card.imageDataUrl}
+                      alt={activeSurveyItem.card.word}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                      Gợi ý nghĩa tiếng Việt:
+                    </p>
+                    <p className="text-lg font-black text-slate-900">
+                      "{activeSurveyItem.card.meaning}"
+                    </p>
+                    <div className="flex items-center justify-center gap-2 pt-1">
+                      <span className="text-sm font-semibold text-slate-500">Từ tiếng Anh:</span>
+                      <span className="text-xl font-black text-indigo-700">{activeSurveyItem.card.word}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          speakVocabulary(activeSurveyItem.card.word, {
+                            audioDataUrl: activeSurveyItem.card.audioDataUrl,
+                            rate: settings.speechRate,
+                            accent: settings.voiceAccent,
+                          })
+                        }
+                        className="p-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors shadow-2xs cursor-pointer"
+                        title="Nghe phát âm"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons for Teacher */}
+                  <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSurveyMarkResult(true)}
+                      className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      Chính xác (+{activeSurveyItem.points} điểm cho {nextTeamName(activeTeam)})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSurveyMarkResult(false)}
+                      className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <X className="w-4 h-4" />
+                      Báo sai (Strike ✕)
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
