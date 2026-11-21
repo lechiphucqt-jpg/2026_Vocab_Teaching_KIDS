@@ -17,6 +17,16 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
+  Clipboard,
+  Palette,
+  Paintbrush,
+  ExternalLink,
+  Copy,
+  RotateCcw,
+  Wand2,
+  ImageIcon,
+  Bot,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   SAMPLE_TEXTBOOK_PAGE_URL,
@@ -31,7 +41,13 @@ import {
   formatBytes,
   speakVocabulary,
 } from '../utils/mediaUtils';
-import { generateDeckWithAI, getStoredApiKey } from '../utils/geminiService';
+import {
+  generateDeckWithAI,
+  getStoredApiKey,
+  generateIllustrationWithAI,
+  generateExternalAIPrompts,
+  AI_DRAWING_STYLES,
+} from '../utils/geminiService';
 import { triggerCelebration } from '../utils/celebration';
 import { ResilientImage } from './ResilientImage';
 
@@ -325,6 +341,24 @@ export function ContentStudio({
   const [cropMeaning, setCropMeaning] = useState('');
   const [cropExample, setCropExample] = useState('');
 
+  // ---------------- AI DRAWING & RE-DRAWING (Gemini / Imagen / Canva / ChatGPT) ----------------
+  const [isAiRedrawing, setIsAiRedrawing] = useState(false);
+  const [showAiDrawModal, setShowAiDrawModal] = useState(false);
+  const [aiDrawModalTab, setAiDrawModalTab] = useState<'gemini' | 'external'>('gemini');
+  const [aiCustomPrompt, setAiCustomPrompt] = useState('');
+  const [aiDrawStyle, setAiDrawStyle] = useState('cartoon');
+  const [aiDrawEngine, setAiDrawEngine] = useState<'smart-auto' | 'gemini-svg' | 'imagen-3'>('smart-auto');
+  const [isAiGeneratingIllustration, setIsAiGeneratingIllustration] = useState(false);
+  const [aiGeneratedPreview, setAiGeneratedPreview] = useState<string | null>(null);
+  const [aiGeneratedEngineUsed, setAiGeneratedEngineUsed] = useState<string>('');
+  const [aiExternalPrompts, setAiExternalPrompts] = useState<{
+    chatGptDallePrompt: string;
+    canvaPrompt: string;
+    vietnameseGuide: string;
+  } | null>(null);
+  const [isGeneratingExternalPrompts, setIsGeneratingExternalPrompts] = useState(false);
+  const [copiedField, setCopiedField] = useState<'chatgpt' | 'canva' | null>(null);
+
   const pageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const loadedPageImgRef = useRef<HTMLImageElement | null>(null);
 
@@ -512,6 +546,218 @@ export function ContentStudio({
       showToast('Đã tải trang sách lên canvas. Kéo chuột để khoanh vùng cắt ảnh.');
     };
     reader.readAsDataURL(file);
+  };
+
+  // ---------------- CLIPBOARD PASTE FOR TEXTBOOK CROPPER ----------------
+  useEffect(() => {
+    if (subTab !== 'cropper') return;
+
+    const handleWindowPaste = (e: ClipboardEvent) => {
+      const activeEl = document.activeElement;
+      const isTypingText =
+        activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            const reader = new FileReader();
+            reader.onload = () => {
+              setTextbookImageSrc(String(reader.result));
+              setIsUsingSamplePage(false);
+              setDetectedRegions([]);
+              setCropRect(null);
+              setCroppedPreviewBase64('');
+              showToast('📋 Đã dán ảnh trang sách từ Clipboard thành công!');
+            };
+            reader.readAsDataURL(file);
+            return;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleWindowPaste);
+    return () => {
+      window.removeEventListener('paste', handleWindowPaste);
+    };
+  }, [subTab]);
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imgType = item.types.find((t) => t.startsWith('image/'));
+          if (imgType) {
+            const blob = await item.getType(imgType);
+            const file = new File([blob], 'clipboard-page.png', { type: imgType });
+            const reader = new FileReader();
+            reader.onload = () => {
+              setTextbookImageSrc(String(reader.result));
+              setIsUsingSamplePage(false);
+              setDetectedRegions([]);
+              setCropRect(null);
+              setCroppedPreviewBase64('');
+              showToast('📋 Đã dán ảnh trang sách từ Clipboard thành công!');
+            };
+            reader.readAsDataURL(file);
+            return;
+          }
+        }
+        showToast(
+          'Chưa tìm thấy ảnh trong Clipboard. Thầy cô vui lòng chụp màn hình (Win + Shift + S) rồi bấm lại nút này hoặc nhấn Ctrl + V.'
+        );
+      } else {
+        showToast('Trình duyệt bảo mật clipboard. Thầy cô chỉ cần nhấn phím Ctrl + V trên bàn phím để dán ảnh!');
+      }
+    } catch {
+      showToast('Thầy cô hãy nhấn tổ hợp phím Ctrl + V trên bàn phím để dán ảnh chụp màn hình!');
+    }
+  };
+
+  // ---------------- AI REDRAW & CUSTOM DRAWING HANDLERS ----------------
+  const handleAiRedrawCroppedImage = async () => {
+    if (!croppedPreviewBase64) {
+      showToast('Vui lòng khoanh vùng ảnh trên trang sách hoặc chọn ô trước khi bấm vẽ lại!');
+      return;
+    }
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+      return;
+    }
+
+    setIsAiRedrawing(true);
+    try {
+      const promptToUse = cropWord.trim()
+        ? `A friendly educational children's book illustration of ${cropWord.trim()} (${cropMeaning.trim()})`
+        : '';
+      const result = await generateIllustrationWithAI({
+        prompt: promptToUse,
+        style: aiDrawStyle,
+        sourceImageBase64: croppedPreviewBase64,
+        engine: aiDrawEngine,
+      });
+
+      setCroppedPreviewBase64(result.imageDataUrl);
+      if (result.recognized) {
+        if (!cropWord.trim()) setCropWord(result.recognized.word);
+        if (!cropMeaning.trim()) setCropMeaning(result.recognized.meaning);
+        if (!cropPhonetic.trim()) setCropPhonetic(result.recognized.phonetic);
+        if (!cropExample.trim()) setCropExample(result.recognized.example);
+      }
+      triggerCelebration();
+      showToast(`✨ Đã vẽ lại hình minh họa bằng ${result.engineUsed}!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Lỗi vẽ lại hình: ${msg}`);
+    } finally {
+      setIsAiRedrawing(false);
+    }
+  };
+
+  const handleGenerateCustomIllustration = async () => {
+    const prompt = aiCustomPrompt.trim() || cropWord.trim();
+    if (!prompt) {
+      showToast('Vui lòng nhập ý tưởng hoặc tên từ vựng muốn vẽ!');
+      return;
+    }
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+      return;
+    }
+
+    setIsAiGeneratingIllustration(true);
+    try {
+      const result = await generateIllustrationWithAI({
+        prompt,
+        style: aiDrawStyle,
+        engine: aiDrawEngine,
+      });
+      setAiGeneratedPreview(result.imageDataUrl);
+      setAiGeneratedEngineUsed(result.engineUsed);
+      triggerCelebration();
+      showToast(`✨ Đã vẽ xong tranh minh họa bằng ${result.engineUsed}!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Lỗi tạo ảnh: ${msg}`);
+    } finally {
+      setIsAiGeneratingIllustration(false);
+    }
+  };
+
+  const handleApplyAiIllustrationToCard = () => {
+    if (!aiGeneratedPreview) return;
+    setCroppedPreviewBase64(aiGeneratedPreview);
+    if (formOpen) {
+      setFormImageDataUrl(aiGeneratedPreview);
+    }
+    if (!cropWord.trim() && aiCustomPrompt.trim()) {
+      setCropWord(aiCustomPrompt.trim());
+    }
+    setShowAiDrawModal(false);
+    showToast('Đã áp dụng hình vẽ AI vào thẻ từ vựng!');
+  };
+
+  const handleGenerateExternalPrompts = async () => {
+    const prompt = aiCustomPrompt.trim() || cropWord.trim() || 'A cute friendly character for children';
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+      return;
+    }
+
+    setIsGeneratingExternalPrompts(true);
+    try {
+      const prompts = await generateExternalAIPrompts(prompt, aiDrawStyle);
+      setAiExternalPrompts(prompts);
+      showToast('Đã tạo Prompt tối ưu cho ChatGPT & Canva!');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Lỗi tạo prompt: ${msg}`);
+    } finally {
+      setIsGeneratingExternalPrompts(false);
+    }
+  };
+
+  const handleCopyPrompt = (text: string, type: 'chatgpt' | 'canva') => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(type);
+    showToast(`Đã sao chép Prompt cho ${type === 'chatgpt' ? 'ChatGPT (DALL-E 3)' : 'Canva'}!`);
+    window.setTimeout(() => setCopiedField(null), 2500);
+  };
+
+  const handlePasteExternalImage = (e: React.ClipboardEvent | React.DragEvent) => {
+    e.preventDefault();
+    let file: File | null = null;
+    if ('clipboardData' in e && e.clipboardData?.items) {
+      for (let i = 0; i < e.clipboardData.items.length; i++) {
+        if (e.clipboardData.items[i].type.startsWith('image/')) {
+          file = e.clipboardData.items[i].getAsFile();
+          break;
+        }
+      }
+    } else if ('dataTransfer' in e && e.dataTransfer?.files) {
+      if (e.dataTransfer.files.length > 0 && e.dataTransfer.files[0].type.startsWith('image/')) {
+        file = e.dataTransfer.files[0];
+      }
+    }
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAiGeneratedPreview(String(reader.result));
+        setAiGeneratedEngineUsed('Ảnh tải/dán từ bên ngoài (ChatGPT / Canva)');
+        showToast('Đã nhận diện ảnh dán từ ChatGPT/Canva thành công!');
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSaveCroppedCard = async (e: React.FormEvent) => {
@@ -776,20 +1022,34 @@ export function ContentStudio({
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap">
-                      <Upload className="w-3.5 h-3.5" />
-                      Tải ảnh (Base64)
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) handleImageFileUpload(f);
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap shadow-2xs">
+                        <Upload className="w-3.5 h-3.5" />
+                        Tải ảnh
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleImageFileUpload(f);
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiCustomPrompt(formWord ? `${formWord} (${formMeaning})` : '');
+                          setShowAiDrawModal(true);
                         }}
-                      />
-                    </label>
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-xs font-semibold text-purple-700 hover:bg-purple-100 cursor-pointer whitespace-nowrap shadow-2xs"
+                        title="Vẽ tranh minh họa bằng AI cho từ này"
+                      >
+                        <Palette className="w-3.5 h-3.5 text-purple-600" />
+                        Vẽ AI
+                      </button>
+                    </div>
                     {formImageDataUrl && (
                       <span className="text-xs font-mono text-slate-500 tabular-nums">
                         {formatBytes(estimateStringBytes(formImageDataUrl))}
@@ -1045,13 +1305,23 @@ export function ContentStudio({
                 <button
                   type="button"
                   onClick={handleRunSmartScan}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0284C7] text-white text-xs font-semibold hover:bg-[#0369A1] whitespace-nowrap"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0284C7] text-white text-xs font-semibold hover:bg-[#0369A1] whitespace-nowrap shadow-xs cursor-pointer"
                 >
                   <ScanSearch className="w-4 h-4" />
                   Tự động nhận diện khung ảnh
                 </button>
 
-                <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={handlePasteFromClipboard}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-emerald-400 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
+                  title="Dán ảnh chụp màn hình từ Clipboard (Win + Shift + S rồi bấm vào đây hoặc ấn Ctrl + V)"
+                >
+                  <Clipboard className="w-3.5 h-3.5 text-emerald-600" />
+                  Dán ảnh chụp (Ctrl+V)
+                </button>
+
+                <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap shadow-xs">
                   <Upload className="w-3.5 h-3.5" />
                   Tải ảnh trang sách
                   <input
@@ -1074,12 +1344,33 @@ export function ContentStudio({
                       setDetectedRegions([]);
                       setCropRect(null);
                     }}
-                    className="text-xs font-medium text-[#0284C7] hover:underline whitespace-nowrap"
+                    className="text-xs font-medium text-[#0284C7] hover:underline whitespace-nowrap cursor-pointer"
                   >
                     Dùng trang mẫu
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Quick Screenshot Paste Tip Banner */}
+            <div className="flex items-center justify-between text-xs text-emerald-900 bg-emerald-50/90 border border-emerald-200 rounded-xl px-3.5 py-2">
+              <div className="flex items-center gap-2">
+                <Clipboard className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  💡 <strong>Chụp màn hình & Dán tức thì:</strong> Nhấn{' '}
+                  <kbd className="px-1.5 py-0.5 bg-white border border-emerald-300 rounded text-[11px] font-mono font-bold text-emerald-950 shadow-2xs">
+                    Win + Shift + S
+                  </kbd>{' '}
+                  để chụp trang sách rồi nhấn{' '}
+                  <kbd className="px-1.5 py-0.5 bg-white border border-emerald-300 rounded text-[11px] font-mono font-bold text-emerald-950 shadow-2xs">
+                    Ctrl + V
+                  </kbd>{' '}
+                  để dán thẳng vào trang sách này!
+                </span>
+              </div>
+              <span className="hidden sm:inline-block text-[11px] font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">
+                Sẵn sàng nhận ảnh
+              </span>
             </div>
 
             <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-100 select-none">
@@ -1127,7 +1418,7 @@ export function ContentStudio({
               </p>
             </div>
 
-            <div className="aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center">
+            <div className="relative aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center">
               {croppedPreviewBase64 ? (
                 <img
                   src={croppedPreviewBase64}
@@ -1142,11 +1433,53 @@ export function ContentStudio({
                   </p>
                 </div>
               )}
+
+              {isAiRedrawing && (
+                <div className="absolute inset-0 bg-white/95 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center z-10">
+                  <Loader2 className="w-8 h-8 text-purple-600 animate-spin mb-2" />
+                  <p className="text-xs font-bold text-slate-800">Gemini AI đang nhận diện & vẽ lại hình...</p>
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-xs">
+                    Đang chuyển đổi ảnh chụp từ sách thành hình minh họa vector/3D sắc nét
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* AI Redraw & Custom Drawing Action Buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleAiRedrawCroppedImage}
+                disabled={!croppedPreviewBase64 || isAiRedrawing}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-semibold hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
+                title="AI tự động nhận diện vật thể trong ảnh sách và vẽ lại thành hình minh họa vector/3D đẹp mắt"
+              >
+                {isAiRedrawing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="w-3.5 h-3.5 text-purple-200" />
+                )}
+                <span>✨ AI Vẽ lại hình này</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAiCustomPrompt(cropWord ? `${cropWord} (${cropMeaning})` : '');
+                  setShowAiDrawModal(true);
+                }}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-purple-300 bg-purple-50 text-purple-800 text-xs font-semibold hover:bg-purple-100 hover:border-purple-400 transition-colors shadow-xs cursor-pointer"
+                title="Tự vẽ theo ý tưởng riêng hoặc lấy Prompt cho ChatGPT, Canva"
+              >
+                <Palette className="w-3.5 h-3.5 text-purple-600" />
+                <span>🎨 Tự vẽ theo ý tưởng</span>
+              </button>
             </div>
 
             {croppedPreviewBase64 && (
-              <div className="text-xs font-mono text-slate-500 tabular-nums">
-                Dung lượng nhúng Base64: {formatBytes(estimateStringBytes(croppedPreviewBase64))}
+              <div className="flex items-center justify-between text-xs text-slate-500 font-mono">
+                <span>Dung lượng nhúng Base64:</span>
+                <span className="tabular-nums font-semibold">{formatBytes(estimateStringBytes(croppedPreviewBase64))}</span>
               </div>
             )}
 
@@ -1310,6 +1643,368 @@ export function ContentStudio({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* AI DRAWING & RE-DRAWING MODAL (Gemini · ChatGPT · Canva) */}
+      {showAiDrawModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-purple-700 via-indigo-600 to-emerald-700 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-white/15 backdrop-blur-xs">
+                  <Palette className="w-5 h-5 text-purple-100" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base flex items-center gap-2">
+                    Xưởng Vẽ Tranh Minh Họa AI
+                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/20 text-white font-medium">
+                      Gemini · Canva · ChatGPT
+                    </span>
+                  </h3>
+                  <p className="text-xs text-purple-100">
+                    Tự động vẽ tranh minh họa cho từ vựng hoặc hỗ trợ prompt chuẩn cho ChatGPT & Canva
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAiDrawModal(false)}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Tabs */}
+            <div className="flex border-b border-slate-200 bg-slate-50 px-6 shrink-0">
+              <button
+                type="button"
+                onClick={() => setAiDrawModalTab('gemini')}
+                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  aiDrawModalTab === 'gemini'
+                    ? 'border-purple-600 text-purple-700 bg-white'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                ✨ Vẽ trực tiếp bằng Gemini AI
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiDrawModalTab('external')}
+                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  aiDrawModalTab === 'external'
+                    ? 'border-indigo-600 text-indigo-700 bg-white'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Bot className="w-3.5 h-3.5" />
+                🤖 Trợ lý Prompt cho ChatGPT & Canva
+              </button>
+            </div>
+
+            {/* Modal Body (Scrollable) */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              {aiDrawModalTab === 'gemini' ? (
+                <>
+                  {/* Prompt input */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Ý tưởng hoặc nội dung muốn vẽ (tiếng Việt hoặc tiếng Anh):
+                    </label>
+                    <input
+                      type="text"
+                      value={aiCustomPrompt}
+                      onChange={(e) => setAiCustomPrompt(e.target.value)}
+                      placeholder="VD: Chú voi con phun nước vui đùa trong rừng hoa, A cute red bicycle with flowers..."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                    />
+                  </div>
+
+                  {/* Style selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-2">
+                      Chọn phong cách minh họa thiếu nhi:
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {AI_DRAWING_STYLES.map((style) => (
+                        <button
+                          key={style.id}
+                          type="button"
+                          onClick={() => setAiDrawStyle(style.id)}
+                          className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                            aiDrawStyle === style.id
+                              ? 'border-purple-600 bg-purple-50/60 ring-2 ring-purple-600/20'
+                              : 'border-slate-200 hover:border-slate-300 bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-bold text-slate-800">{style.name}</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                              {style.badge}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 line-clamp-1">{style.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Engine selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Công nghệ tạo ảnh:
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAiDrawEngine('smart-auto')}
+                        className={`p-2.5 rounded-xl border text-center transition-colors text-xs font-semibold cursor-pointer ${
+                          aiDrawEngine === 'smart-auto'
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        ⚡ Tự động thông minh
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAiDrawEngine('gemini-svg')}
+                        className={`p-2.5 rounded-xl border text-center transition-colors text-xs font-semibold cursor-pointer ${
+                          aiDrawEngine === 'gemini-svg'
+                            ? 'border-purple-600 bg-purple-50 text-purple-800'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        📐 Vector SVG (Nét 4K)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAiDrawEngine('imagen-3')}
+                        className={`p-2.5 rounded-xl border text-center transition-colors text-xs font-semibold cursor-pointer ${
+                          aiDrawEngine === 'imagen-3'
+                            ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        🖼️ Google Imagen 3
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Action button */}
+                  <button
+                    type="button"
+                    onClick={handleGenerateCustomIllustration}
+                    disabled={isAiGeneratingIllustration || (!aiCustomPrompt.trim() && !cropWord.trim())}
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 text-white text-xs font-bold hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                  >
+                    {isAiGeneratingIllustration ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>AI đang vẽ tranh minh họa...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-4 h-4" />
+                        <span>Bắt đầu vẽ tranh bằng AI</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Preview Result */}
+                  {aiGeneratedPreview && (
+                    <div className="pt-3 border-t border-slate-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">Kết quả tranh vẽ AI:</span>
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          {aiGeneratedEngineUsed}
+                        </span>
+                      </div>
+                      <div className="aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center max-w-sm mx-auto shadow-inner">
+                        <img
+                          src={aiGeneratedPreview}
+                          alt="AI generated illustration"
+                          className="w-full h-full object-contain bg-white"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleApplyAiIllustrationToCard}
+                          className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          Dùng hình này cho thẻ từ vựng
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleGenerateCustomIllustration}
+                          disabled={isAiGeneratingIllustration}
+                          className="py-2.5 px-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Vẽ lại
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* TAB 2: EXTERNAL AI PROMPT HELPER (ChatGPT & Canva) */
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-indigo-50/80 border border-indigo-200 text-xs text-indigo-900 leading-relaxed">
+                    💡 <strong>Hỗ trợ ChatGPT (DALL-E 3) & Canva:</strong> Thầy cô có thể sinh Prompt chuyên nghiệp bằng tiếng Anh, sao chép sang ChatGPT hoặc Canva để vẽ ảnh theo ý muốn, sau đó dán trực tiếp kết quả ảnh vào đây!
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Từ vựng hoặc ý tưởng muốn vẽ:
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={aiCustomPrompt}
+                        onChange={(e) => setAiCustomPrompt(e.target.value)}
+                        placeholder="VD: School Bus, Con voi, Chiếc cặp sách màu vàng..."
+                        className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleGenerateExternalPrompts}
+                        disabled={isGeneratingExternalPrompts}
+                        className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
+                      >
+                        {isGeneratingExternalPrompts ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-4 h-4" />
+                        )}
+                        Tạo Prompt chuẩn
+                      </button>
+                    </div>
+                  </div>
+
+                  {aiExternalPrompts && (
+                    <div className="space-y-3.5 pt-2">
+                      {/* ChatGPT Box */}
+                      <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            🟢 Prompt cho ChatGPT / DALL-E 3:
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href="https://chatgpt.com"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] font-semibold text-emerald-700 hover:underline flex items-center gap-1"
+                            >
+                              Mở ChatGPT <ExternalLink className="w-3 h-3" />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPrompt(aiExternalPrompts.chatGptDallePrompt, 'chatgpt')}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-300 text-xs font-medium text-slate-700 hover:bg-slate-100 shadow-2xs cursor-pointer"
+                            >
+                              {copiedField === 'chatgpt' ? (
+                                <Check className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                              Sao chép
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-2.5 bg-white border border-slate-200 rounded-lg text-xs font-mono text-slate-700 select-all break-words">
+                          {aiExternalPrompts.chatGptDallePrompt}
+                        </div>
+                      </div>
+
+                      {/* Canva Box */}
+                      <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            🔵 Prompt cho Canva (Magic Media / Tạo ảnh):
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href="https://www.canva.com"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] font-semibold text-[#00c4cc] hover:underline flex items-center gap-1"
+                            >
+                              Mở Canva <ExternalLink className="w-3 h-3" />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPrompt(aiExternalPrompts.canvaPrompt, 'canva')}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-300 text-xs font-medium text-slate-700 hover:bg-slate-100 shadow-2xs cursor-pointer"
+                            >
+                              {copiedField === 'canva' ? (
+                                <Check className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                              Sao chép
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-2.5 bg-white border border-slate-200 rounded-lg text-xs font-mono text-slate-700 select-all break-words">
+                          {aiExternalPrompts.canvaPrompt}
+                        </div>
+                      </div>
+
+                      {/* Drop/Paste Target Box */}
+                      <div
+                        onPaste={handlePasteExternalImage}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={handlePasteExternalImage}
+                        className="p-4 border-2 border-dashed border-indigo-300 rounded-xl bg-indigo-50/40 text-center space-y-2 hover:bg-indigo-50/70 transition-colors"
+                      >
+                        <ImageIcon className="w-6 h-6 text-indigo-500 mx-auto" />
+                        <p className="text-xs font-bold text-indigo-900">
+                          Dán hoặc kéo thả ảnh từ ChatGPT / Canva vào đây
+                        </p>
+                        <p className="text-[11px] text-indigo-700">
+                          Nhấn tổ hợp phím <kbd className="font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-200">Ctrl + V</kbd> khi đang ở trong khung này, hoặc kéo thả tệp ảnh đã tải về
+                        </p>
+                      </div>
+
+                      {/* Preview if image loaded */}
+                      {aiGeneratedPreview && (
+                        <div className="pt-2 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-800">Ảnh đã nhận diện:</span>
+                            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                              {aiGeneratedEngineUsed}
+                            </span>
+                          </div>
+                          <div className="aspect-[4/3] rounded-xl overflow-hidden bg-white border border-slate-200 flex items-center justify-center max-w-sm mx-auto">
+                            <img
+                              src={aiGeneratedPreview}
+                              alt="Result preview"
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleApplyAiIllustrationToCard}
+                            className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            Dùng ảnh này cho thẻ từ vựng
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
