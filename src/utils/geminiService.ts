@@ -309,11 +309,13 @@ export interface RecognizedCroppedObject {
   meaning: string;
   phonetic: string;
   example: string;
+  syllables?: string;
   visualDescription: string;
 }
 
 export async function analyzeCroppedImageWithAI(
-  base64Image: string
+  base64Image: string,
+  hintOrPrompt?: string
 ): Promise<RecognizedCroppedObject> {
   let mimeType = 'image/jpeg';
   let rawBase64 = base64Image;
@@ -323,21 +325,29 @@ export async function analyzeCroppedImageWithAI(
     rawBase64 = match[2];
   }
 
-  const prompt = `Đây là một bức ảnh cắt ra từ trang sách giáo khoa tiếng Anh tiểu học.
-Hãy nhìn vào hình ảnh và nhận diện:
-1. Vật thể, con vật hoặc hành động chính được mô tả trong hình.
-2. Từ vựng tiếng Anh tương ứng phù hợp cho học sinh lớp 1-5 (word).
-3. Nghĩa tiếng Việt chuẩn xác, gần gũi cho trẻ (meaning).
-4. Phiên âm quốc tế IPA chuẩn xác (phonetic).
-5. Một câu ví dụ tiếng Anh đơn giản dưới 7 từ chứa từ này (example).
-6. Một đoạn mô tả hình ảnh trực quan sinh động bằng tiếng Anh (visualDescription) để họa sĩ AI vẽ lại một bức tranh hoạt hình thiếu nhi tuyệt đẹp về vật thể này (không chứa chữ).
+  // Fallback for svg mime types in vision API
+  if (mimeType.includes('svg')) {
+    mimeType = 'image/png';
+  }
 
-Hãy trả về DUY NHẤT một JSON Object theo cấu trúc:
+  const prompt = `Bạn là chuyên gia sư phạm tiếng Anh mầm non và tiểu học (Cambridge Starters, Movers, Flyers).
+Nhiệm vụ: Nhìn vào bức ảnh minh họa được đính kèm${hintOrPrompt ? ` (và gợi ý kèm theo từ người dùng: "${hintOrPrompt}")` : ''} để đối chiếu, phân tích nhận diện chính xác hình ảnh và điền các mục thông tin học liệu:
+
+Yêu cầu chi tiết:
+1. "word": ĐÚNG 1 TỪ VỰNG TIẾNG ANH CHÍNH (hoặc cụm danh từ ngắn quen thuộc như "School bus", "Ice cream", "Living room"), viết hoa chữ cái đầu. TUYỆT ĐỐI KHÔNG ghi cả câu dài, không ghi mô tả rườm rà (Ví dụ: nếu hình là con hươu cao cổ và gợi ý là "Con hươu cao cổ, hoạt hình 3", thì từ vựng PHẢI là "Giraffe").
+2. "meaning": Nghĩa tiếng Việt chuẩn mực, ngắn gọn, tự nhiên, gần gũi với học sinh (Ví dụ: "Con hươu cao cổ").
+3. "phonetic": Phiên âm quốc tế IPA chuẩn xác đặt giữa 2 dấu gạch chéo (Ví dụ: "/dʒɪˈrɑːf/").
+4. "example": Một câu ví dụ tiếng Anh đơn giản, sinh động, dưới 8 từ có chứa từ vựng trên (Ví dụ: "The friendly giraffe eats green leaves.").
+5. "syllables": Tách các âm tiết bằng dấu chấm ở giữa (Ví dụ: "Gi · raffe").
+6. "visualDescription": Mô tả trực quan ngắn gọn bằng tiếng Anh về hình ảnh.
+
+Hãy trả về DUY NHẤT một chuỗi JSON thuần (không kèm markdown):
 {
   "word": "...",
   "meaning": "...",
   "phonetic": "...",
   "example": "...",
+  "syllables": "...",
   "visualDescription": "..."
 }`;
 
@@ -353,24 +363,27 @@ Hãy trả về DUY NHẤT một JSON Object theo cấu trúc:
 
   const { text } = await callGeminiWithFallback(contents, {
     responseMimeType: 'application/json',
-    systemInstruction: 'Bạn là chuyên gia nhận diện hình ảnh sư phạm tiếng Anh tiểu học. Luôn trả về JSON hợp lệ.',
+    systemInstruction: 'Bạn là chuyên gia đối chiếu và nhận diện hình ảnh sư phạm tiếng Anh cho trẻ em. Luôn trả về JSON hợp lệ.',
   });
 
   try {
-    const parsed = JSON.parse(text);
+    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
     return {
       word: String(parsed.word || '').trim(),
       meaning: String(parsed.meaning || '').trim(),
       phonetic: String(parsed.phonetic || '').trim(),
       example: String(parsed.example || '').trim(),
+      syllables: parsed.syllables ? String(parsed.syllables).trim() : undefined,
       visualDescription: String(parsed.visualDescription || '').trim(),
     };
   } catch {
     return {
-      word: 'Picture',
+      word: hintOrPrompt ? hintOrPrompt.split(',')[0].trim() : 'Picture',
       meaning: 'Bức tranh',
       phonetic: '/ˈpɪk.tʃər/',
       example: 'This is a beautiful picture.',
+      syllables: 'Pic · ture',
       visualDescription: 'A cheerful colorful children book illustration of the object',
     };
   }

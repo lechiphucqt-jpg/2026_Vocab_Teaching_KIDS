@@ -56,6 +56,7 @@ import {
   generateExternalAIPrompts,
   AI_DRAWING_STYLES,
   splitTextbookPageWithAI,
+  analyzeCroppedImageWithAI,
   type DetectedTextbookItem,
 } from '../utils/geminiService';
 import { triggerCelebration } from '../utils/celebration';
@@ -364,6 +365,8 @@ export function ContentStudio({
   const [cropPhonetic, setCropPhonetic] = useState('');
   const [cropMeaning, setCropMeaning] = useState('');
   const [cropExample, setCropExample] = useState('');
+  const [cropSyllables, setCropSyllables] = useState('');
+  const [isAiAnalyzingImage, setIsAiAnalyzingImage] = useState(false);
 
   // ---------------- AI DRAWING & RE-DRAWING (Gemini / Imagen / Canva / ChatGPT) ----------------
   const [isAiRedrawing, setIsAiRedrawing] = useState(false);
@@ -776,17 +779,126 @@ export function ContentStudio({
     }
   };
 
-  const handleApplyAiIllustrationToCard = () => {
+  const handleApplyAiIllustrationToCard = async () => {
     if (!aiGeneratedPreview) return;
-    setCroppedPreviewBase64(aiGeneratedPreview);
+    const appliedImg = aiGeneratedPreview;
+    setCroppedPreviewBase64(appliedImg);
     if (formOpen) {
-      setFormImageDataUrl(aiGeneratedPreview);
-    }
-    if (!cropWord.trim() && aiCustomPrompt.trim()) {
-      setCropWord(aiCustomPrompt.trim());
+      setFormImageDataUrl(appliedImg);
     }
     setShowAiDrawModal(false);
-    showToast('Đã áp dụng hình vẽ AI vào thẻ từ vựng!');
+
+    const apiKey = getStoredApiKey();
+    if (apiKey) {
+      setIsAiAnalyzingImage(true);
+      showToast('✨ AI đang tự động đối chiếu hình ảnh vừa vẽ để điền từ vựng & nghĩa...');
+      try {
+        const hint = aiCustomPrompt.trim() || cropWord.trim();
+        const res = await analyzeCroppedImageWithAI(appliedImg, hint);
+        if (res.word) {
+          setCropWord(res.word);
+          setCropMeaning(res.meaning);
+          setCropPhonetic(res.phonetic);
+          setCropExample(res.example);
+          if (res.syllables) setCropSyllables(res.syllables);
+          if (formOpen) {
+            setFormWord(res.word);
+            setFormMeaning(res.meaning);
+            setFormPhonetic(res.phonetic);
+            setFormExample(res.example);
+            if (res.syllables) setFormSyllables(res.syllables);
+          }
+          triggerCelebration();
+          showToast(`✨ Đã đối chiếu thành công: "${res.word}" - ${res.meaning}!`);
+        }
+      } catch (err) {
+        console.warn('Auto cross-match error:', err);
+        if (!cropWord.trim() && aiCustomPrompt.trim()) {
+          setCropWord(aiCustomPrompt.trim());
+        }
+      } finally {
+        setIsAiAnalyzingImage(false);
+      }
+    } else {
+      if (!cropWord.trim() && aiCustomPrompt.trim()) {
+        setCropWord(aiCustomPrompt.trim());
+      }
+      showToast('Đã áp dụng hình vẽ AI vào thẻ từ vựng!');
+    }
+  };
+
+  const handleAiAutoFillFromCroppedImage = async () => {
+    if (!croppedPreviewBase64) {
+      showToast('Vui lòng chọn hoặc dán hình ảnh trước khi đối chiếu AI.');
+      return;
+    }
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+      return;
+    }
+
+    setIsAiAnalyzingImage(true);
+    showToast('AI đang quan sát hình ảnh và đối chiếu các mục thông tin...');
+    try {
+      const hint = [cropWord.trim(), cropMeaning.trim(), aiCustomPrompt.trim()].filter(Boolean).join(' - ');
+      const res = await analyzeCroppedImageWithAI(croppedPreviewBase64, hint);
+      if (res.word) {
+        setCropWord(res.word);
+        setCropMeaning(res.meaning);
+        setCropPhonetic(res.phonetic);
+        setCropExample(res.example);
+        if (res.syllables) {
+          setCropSyllables(res.syllables);
+        }
+        triggerCelebration();
+        showToast(`✨ AI đã đối chiếu xong: "${res.word}" - ${res.meaning}!`);
+      } else {
+        showToast('AI không nhận diện được vật thể rõ ràng trong ảnh.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Lỗi đối chiếu hình ảnh: ${msg}`);
+    } finally {
+      setIsAiAnalyzingImage(false);
+    }
+  };
+
+  const handleAiAutoFillFromFormImage = async () => {
+    if (!formImageDataUrl) {
+      showToast('Vui lòng chọn hoặc dán hình ảnh vào thẻ trước.');
+      return;
+    }
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+      return;
+    }
+
+    setIsAiAnalyzingImage(true);
+    showToast('AI đang quan sát hình ảnh và đối chiếu các mục thông tin...');
+    try {
+      const hint = [formWord.trim(), formMeaning.trim()].filter(Boolean).join(' - ');
+      const res = await analyzeCroppedImageWithAI(formImageDataUrl, hint);
+      if (res.word) {
+        setFormWord(res.word);
+        setFormMeaning(res.meaning);
+        setFormPhonetic(res.phonetic);
+        setFormExample(res.example);
+        if (res.syllables) {
+          setFormSyllables(res.syllables);
+        }
+        triggerCelebration();
+        showToast(`✨ AI đã đối chiếu xong: "${res.word}" - ${res.meaning}!`);
+      } else {
+        showToast('AI không nhận diện được vật thể rõ ràng trong ảnh.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Lỗi đối chiếu hình ảnh: ${msg}`);
+    } finally {
+      setIsAiAnalyzingImage(false);
+    }
   };
 
   const handleGenerateExternalPrompts = async () => {
@@ -1133,6 +1245,7 @@ export function ContentStudio({
       phonetic: cropPhonetic.trim() || `/${cropWord.trim().toLowerCase()}/`,
       meaning: cropMeaning.trim(),
       example: cropExample.trim(),
+      syllables: cropSyllables.trim() || undefined,
       imageDataUrl: croppedPreviewBase64,
       order: deckCards.length,
       bestStars: 0,
@@ -1144,6 +1257,7 @@ export function ContentStudio({
     setCropPhonetic('');
     setCropMeaning('');
     setCropExample('');
+    setCropSyllables('');
     showToast(`Đã cắt & lưu "${newCard.word}" dạng Base64 vào bài giảng!`);
   };
 
@@ -1411,6 +1525,22 @@ export function ContentStudio({
                         <Palette className="w-3.5 h-3.5 text-purple-600" />
                         Vẽ AI
                       </button>
+                      {formImageDataUrl && (
+                        <button
+                          type="button"
+                          onClick={handleAiAutoFillFromFormImage}
+                          disabled={isAiAnalyzingImage}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-xs font-bold text-emerald-800 hover:bg-emerald-100 cursor-pointer whitespace-nowrap shadow-2xs"
+                          title="AI đối chiếu ảnh và tự động điền từ vựng, nghĩa, phiên âm"
+                        >
+                          {isAiAnalyzingImage ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                          )}
+                          ✨ AI đối chiếu ảnh
+                        </button>
+                      )}
                     </div>
                     {formImageDataUrl && (
                       <span className="text-xs font-mono text-slate-500 tabular-nums">
@@ -1901,19 +2031,69 @@ export function ContentStudio({
               </div>
             )}
 
+            {/* AI AUTO-MATCH & CROSS-REFERENCE CARD */}
+            {croppedPreviewBase64 && (
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-300 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-emerald-600" />
+                    AI Tự Đối Chiếu & Điền Thông Tin
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                    Gemini Vision
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  Tự động phân tích hình ảnh trên để đối chiếu và điền chuẩn xác: Từ tiếng Anh, Nghĩa tiếng Việt, Phiên âm IPA, Tách âm tiết và Câu ví dụ!
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAiAutoFillFromCroppedImage}
+                  disabled={isAiAnalyzingImage}
+                  className="w-full py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:opacity-95 text-white text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {isAiAnalyzingImage ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-emerald-200" />
+                      <span>AI đang quan sát ảnh & đối chiếu từ vựng...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="w-4 h-4" />
+                      <span>✨ AI Đối chiếu hình ảnh & Điền thông tin ngay</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
             <form onSubmit={handleSaveCroppedCard} className="space-y-3.5">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">
-                    Từ tiếng Anh *
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-600">
+                      Từ tiếng Anh *
+                    </label>
+                    {croppedPreviewBase64 && (
+                      <button
+                        type="button"
+                        onClick={handleAiAutoFillFromCroppedImage}
+                        disabled={isAiAnalyzingImage}
+                        className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-0.5 cursor-pointer"
+                        title="AI đối chiếu ảnh và điền tự động"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        AI điền
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
                     value={cropWord}
                     onChange={(e) => setCropWord(e.target.value)}
                     placeholder="VD: Bicycle"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
@@ -1926,22 +2106,36 @@ export function ContentStudio({
                     value={cropMeaning}
                     onChange={(e) => setCropMeaning(e.target.value)}
                     placeholder="VD: Xe đạp"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Phiên âm IPA
-                </label>
-                <input
-                  type="text"
-                  value={cropPhonetic}
-                  onChange={(e) => setCropPhonetic(e.target.value)}
-                  placeholder="VD: /ˈbaɪ.sɪ.kəl/"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Phiên âm IPA
+                  </label>
+                  <input
+                    type="text"
+                    value={cropPhonetic}
+                    onChange={(e) => setCropPhonetic(e.target.value)}
+                    placeholder="VD: /ˈbaɪ.sɪ.kəl/"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Tách âm tiết
+                  </label>
+                  <input
+                    type="text"
+                    value={cropSyllables}
+                    onChange={(e) => setCropSyllables(e.target.value)}
+                    placeholder="VD: Bi · cy · cle"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
 
               <div>
@@ -1953,14 +2147,14 @@ export function ContentStudio({
                   value={cropExample}
                   onChange={(e) => setCropExample(e.target.value)}
                   placeholder="VD: I ride my red bicycle to the park."
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={!croppedPreviewBase64}
-                className="w-full py-2.5 px-4 rounded-xl bg-[#0284C7] text-white text-sm font-semibold hover:bg-[#0369A1] disabled:opacity-50 transition-colors"
+                className="w-full py-2.5 px-4 rounded-xl bg-[#0284C7] text-white text-sm font-semibold hover:bg-[#0369A1] disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
               >
                 Lưu thành thẻ Base64 vào chủ đề đang chọn
               </button>

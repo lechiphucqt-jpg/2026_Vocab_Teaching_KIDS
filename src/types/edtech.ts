@@ -1,6 +1,19 @@
 export type NavTab = 'lessons' | 'speaking' | 'games' | 'studio' | 'materials' | 'analytics' | 'branding';
 
-export type GameKind = 'memory' | 'match' | 'scramble' | 'bubble' | 'race';
+export type GameKind =
+  | 'match'
+  | 'mystery'
+  | 'missing'
+  | 'wheel'
+  | 'maze'
+  | 'race'
+  | 'sorting'
+  | 'spell'
+  | 'taboo'
+  | 'sentence'
+  | 'escape'
+  | 'memory'
+  | 'bubble';
 
 export type AIModelId = 'gemini-3-flash-preview' | 'gemini-3-pro-preview' | 'gemini-2.5-flash';
 
