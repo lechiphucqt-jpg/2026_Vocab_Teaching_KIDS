@@ -48,7 +48,10 @@ import {
 import {
   generateDeckWithAI,
   getStoredApiKey,
+  getStoredOpenAIApiKey,
+  saveStoredOpenAIApiKey,
   generateIllustrationWithAI,
+  generateIllustrationWithChatGPTDallE,
   generateExternalAIPrompts,
   AI_DRAWING_STYLES,
   splitTextbookPageWithAI,
@@ -364,10 +367,10 @@ export function ContentStudio({
   // ---------------- AI DRAWING & RE-DRAWING (Gemini / Imagen / Canva / ChatGPT) ----------------
   const [isAiRedrawing, setIsAiRedrawing] = useState(false);
   const [showAiDrawModal, setShowAiDrawModal] = useState(false);
-  const [aiDrawModalTab, setAiDrawModalTab] = useState<'gemini' | 'external'>('gemini');
+  const [aiDrawModalTab, setAiDrawModalTab] = useState<'gemini' | 'chatgpt' | 'external'>('gemini');
   const [aiCustomPrompt, setAiCustomPrompt] = useState('');
   const [aiDrawStyle, setAiDrawStyle] = useState('cartoon');
-  const [aiDrawEngine, setAiDrawEngine] = useState<'smart-auto' | 'gemini-svg' | 'imagen-3'>('smart-auto');
+  const [aiDrawEngine, setAiDrawEngine] = useState<'smart-auto' | 'chatgpt-dalle' | 'gemini-svg' | 'imagen-3'>('smart-auto');
   const [isAiGeneratingIllustration, setIsAiGeneratingIllustration] = useState(false);
   const [aiGeneratedPreview, setAiGeneratedPreview] = useState<string | null>(null);
   const [aiGeneratedEngineUsed, setAiGeneratedEngineUsed] = useState<string>('');
@@ -379,12 +382,17 @@ export function ContentStudio({
   const [isGeneratingExternalPrompts, setIsGeneratingExternalPrompts] = useState(false);
   const [copiedField, setCopiedField] = useState<'chatgpt' | 'canva' | null>(null);
 
+  // OpenAI ChatGPT DALL-E State
+  const [openaiKeyInput, setOpenaiKeyInput] = useState(getStoredOpenAIApiKey());
+  const [showOpenaiKeySettings, setShowOpenaiKeySettings] = useState(false);
+
   // ---------------- AI BATCH TEXTBOOK SPLIT & REDRAW ----------------
   const [isAiSplittingPage, setIsAiSplittingPage] = useState(false);
   const [showBatchSplitModal, setShowBatchSplitModal] = useState(false);
   const [batchSplitItems, setBatchSplitItems] = useState<BatchSplitCardItem[]>([]);
   const [isBatchRedrawingAll, setIsBatchRedrawingAll] = useState(false);
   const [batchDrawStyle, setBatchDrawStyle] = useState('cartoon');
+  const [batchDrawEngine, setBatchDrawEngine] = useState<'smart-auto' | 'chatgpt-dalle' | 'gemini-svg' | 'imagen-3'>('smart-auto');
 
   const pageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const loadedPageImgRef = useRef<HTMLImageElement | null>(null);
@@ -700,16 +708,51 @@ export function ContentStudio({
     }
   };
 
+  const handleSaveOpenaiKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!openaiKeyInput.trim()) {
+      showToast('Vui lòng nhập OpenAI API Key hợp lệ.');
+      return;
+    }
+    saveStoredOpenAIApiKey(openaiKeyInput.trim());
+    setShowOpenaiKeySettings(false);
+    showToast('✨ Đã lưu OpenAI API Key cho ChatGPT!');
+  };
+
+  const handleOpenChatGPTWebWithPrompt = async () => {
+    const prompt = aiCustomPrompt.trim() || cropWord.trim() || 'A cute friendly character for children';
+    const selectedStyle = AI_DRAWING_STYLES.find((s) => s.id === aiDrawStyle) || AI_DRAWING_STYLES[0];
+    const craftedPrompt = `Create a masterpiece children book illustration of "${prompt}". Style: ${selectedStyle.guide}. Cute, vibrant colors, centered composition, soft clean background, kid-friendly art, high resolution, no text or words on image.`;
+    
+    try {
+      await navigator.clipboard.writeText(craftedPrompt);
+      showToast('📋 Đã sao chép Prompt cho ChatGPT! Đang mở ChatGPT...');
+    } catch {
+      showToast('Đang mở ChatGPT...');
+    }
+    window.open('https://chatgpt.com', '_blank');
+  };
+
   const handleGenerateCustomIllustration = async () => {
     const prompt = aiCustomPrompt.trim() || cropWord.trim();
     if (!prompt) {
       showToast('Vui lòng nhập ý tưởng hoặc tên từ vựng muốn vẽ!');
       return;
     }
-    const apiKey = getStoredApiKey();
-    if (!apiKey) {
-      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
-      return;
+
+    if (aiDrawEngine === 'chatgpt-dalle') {
+      const oKey = openaiKeyInput.trim() || getStoredOpenAIApiKey();
+      if (!oKey) {
+        setShowOpenaiKeySettings(true);
+        showToast('Chưa cấu hình OpenAI API Key. Vui lòng nhập Key hoặc bấm nút "Mở ChatGPT trên Web".');
+        return;
+      }
+    } else {
+      const apiKey = getStoredApiKey();
+      if (!apiKey) {
+        showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+        return;
+      }
     }
 
     setIsAiGeneratingIllustration(true);
@@ -718,6 +761,7 @@ export function ContentStudio({
         prompt,
         style: aiDrawStyle,
         engine: aiDrawEngine,
+        openaiApiKey: openaiKeyInput.trim() || getStoredOpenAIApiKey(),
       });
       setAiGeneratedPreview(result.imageDataUrl);
       setAiGeneratedEngineUsed(result.engineUsed);
@@ -944,14 +988,22 @@ export function ContentStudio({
   };
 
   const handleBatchRedrawAll = async () => {
-    const apiKey = getStoredApiKey();
-    if (!apiKey) {
-      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
-      return;
+    if (batchDrawEngine === 'chatgpt-dalle') {
+      const oKey = getStoredOpenAIApiKey();
+      if (!oKey) {
+        showToast('Chưa cấu hình OpenAI API Key để vẽ bằng ChatGPT. Vui lòng nhập OpenAI Key trong Cài đặt API Key.');
+        return;
+      }
+    } else {
+      const apiKey = getStoredApiKey();
+      if (!apiKey) {
+        showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+        return;
+      }
     }
 
     setIsBatchRedrawingAll(true);
-    showToast('AI đang vẽ lại hình ảnh cho tất cả các thẻ...');
+    showToast(`AI đang vẽ lại hình ảnh cho tất cả các thẻ...`);
 
     try {
       const updated = [...batchSplitItems];
@@ -968,7 +1020,7 @@ export function ContentStudio({
             prompt,
             style: batchDrawStyle,
             sourceImageBase64: item.cropBase64,
-            engine: 'smart-auto',
+            engine: batchDrawEngine,
           });
           updated[i] = {
             ...updated[i],
@@ -994,10 +1046,18 @@ export function ContentStudio({
     const item = batchSplitItems[idx];
     if (!item) return;
 
-    const apiKey = getStoredApiKey();
-    if (!apiKey) {
-      showToast('Chưa cấu hình API Key.');
-      return;
+    if (batchDrawEngine === 'chatgpt-dalle') {
+      const oKey = getStoredOpenAIApiKey();
+      if (!oKey) {
+        showToast('Chưa cấu hình OpenAI API Key để vẽ bằng ChatGPT.');
+        return;
+      }
+    } else {
+      const apiKey = getStoredApiKey();
+      if (!apiKey) {
+        showToast('Chưa cấu hình API Key.');
+        return;
+      }
     }
 
     const updated = [...batchSplitItems];
@@ -1010,7 +1070,7 @@ export function ContentStudio({
         prompt,
         style: batchDrawStyle,
         sourceImageBase64: item.cropBase64,
-        engine: 'smart-auto',
+        engine: batchDrawEngine,
       });
       updated[idx] = {
         ...updated[idx],
@@ -2036,30 +2096,42 @@ export function ContentStudio({
             </div>
 
             {/* Modal Tabs */}
-            <div className="flex border-b border-slate-200 bg-slate-50 px-6 shrink-0">
+            <div className="flex border-b border-slate-200 bg-slate-50 px-6 shrink-0 overflow-x-auto">
               <button
                 type="button"
                 onClick={() => setAiDrawModalTab('gemini')}
-                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer ${
+                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                   aiDrawModalTab === 'gemini'
                     ? 'border-purple-600 text-purple-700 bg-white'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Wand2 className="w-3.5 h-3.5" />
-                ✨ Vẽ trực tiếp bằng Gemini AI
+                ✨ Vẽ trực tiếp bằng AI (Gemini · Imagen)
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiDrawModalTab('chatgpt')}
+                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                  aiDrawModalTab === 'chatgpt'
+                    ? 'border-emerald-600 text-emerald-800 bg-white ring-1 ring-emerald-500/10'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Bot className="w-4 h-4 text-emerald-600" />
+                🤖 Vẽ bằng ChatGPT (DALL-E 3)
               </button>
               <button
                 type="button"
                 onClick={() => setAiDrawModalTab('external')}
-                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer ${
+                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                   aiDrawModalTab === 'external'
                     ? 'border-indigo-600 text-indigo-700 bg-white'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Bot className="w-3.5 h-3.5" />
-                🤖 Trợ lý Prompt cho ChatGPT & Canva
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                🎨 Trợ lý Prompt Canva & Web
               </button>
             </div>
 
@@ -2115,41 +2187,70 @@ export function ContentStudio({
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       Công nghệ tạo ảnh:
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <button
                         type="button"
                         onClick={() => setAiDrawEngine('smart-auto')}
                         className={`p-2.5 rounded-xl border text-center transition-colors text-xs font-semibold cursor-pointer ${
                           aiDrawEngine === 'smart-auto'
-                            ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-500/20'
                             : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                         }`}
                       >
-                        ⚡ Tự động thông minh
+                        ⚡ Tự động
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAiDrawEngine('chatgpt-dalle')}
+                        className={`p-2.5 rounded-xl border text-center transition-colors text-xs font-bold cursor-pointer ${
+                          aiDrawEngine === 'chatgpt-dalle'
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-500/20'
+                            : 'border-emerald-200 bg-emerald-50/40 text-emerald-900 hover:bg-emerald-50'
+                        }`}
+                      >
+                        🤖 ChatGPT
                       </button>
                       <button
                         type="button"
                         onClick={() => setAiDrawEngine('gemini-svg')}
                         className={`p-2.5 rounded-xl border text-center transition-colors text-xs font-semibold cursor-pointer ${
                           aiDrawEngine === 'gemini-svg'
-                            ? 'border-purple-600 bg-purple-50 text-purple-800'
+                            ? 'border-purple-600 bg-purple-50 text-purple-800 ring-2 ring-purple-500/20'
                             : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                         }`}
                       >
-                        📐 Vector SVG (Nét 4K)
+                        📐 Vector SVG
                       </button>
                       <button
                         type="button"
                         onClick={() => setAiDrawEngine('imagen-3')}
                         className={`p-2.5 rounded-xl border text-center transition-colors text-xs font-semibold cursor-pointer ${
                           aiDrawEngine === 'imagen-3'
-                            ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
+                            ? 'border-indigo-600 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-500/20'
                             : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                         }`}
                       >
-                        🖼️ Google Imagen 3
+                        🖼️ Imagen 3
                       </button>
                     </div>
+
+                    {aiDrawEngine === 'chatgpt-dalle' && (
+                      <div className="mt-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950 flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <Bot className="w-4 h-4 text-emerald-700 shrink-0" />
+                          <span>
+                            {openaiKeyInput ? 'Đã sẵn sàng vẽ bằng ChatGPT DALL-E 3.' : 'Chưa có OpenAI Key (nhập key hoặc dùng nút mở web).'}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setAiDrawModalTab('chatgpt')}
+                          className="font-bold underline text-emerald-800 hover:text-emerald-950 cursor-pointer text-[11px] shrink-0"
+                        >
+                          Cài đặt ChatGPT →
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Action button */}
@@ -2210,8 +2311,234 @@ export function ContentStudio({
                     </div>
                   )}
                 </>
+              ) : aiDrawModalTab === 'chatgpt' ? (
+                /* TAB: DEDICATED CHATGPT (DALL-E 3) DRAWING STUDIO */
+                <div className="space-y-5">
+                  {/* Banner */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200 text-xs text-emerald-950 space-y-1">
+                    <div className="font-bold flex items-center gap-2 text-sm text-[#15803d]">
+                      <Bot className="w-5 h-5 text-emerald-700" />
+                      Xưởng Vẽ Tranh Minh Họa Bằng ChatGPT (DALL-E 3)
+                    </div>
+                    <p className="text-[11px] text-emerald-800 leading-relaxed">
+                      ChatGPT (DALL-E 3) tạo hình ảnh 3D Pixar và hoạt hình giáo dục thiếu nhi cực kỳ trong trẻo, sinh động. Thầy cô có thể vẽ trực tiếp bằng OpenAI API Key hoặc bấm mở nhanh ChatGPT trên Web kèm Prompt chuẩn đã tạo sẵn.
+                    </p>
+                  </div>
+
+                  {/* Prompt input */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Ý tưởng hoặc từ vựng muốn ChatGPT vẽ (tiếng Việt hoặc tiếng Anh):
+                    </label>
+                    <input
+                      type="text"
+                      value={aiCustomPrompt}
+                      onChange={(e) => setAiCustomPrompt(e.target.value)}
+                      placeholder="VD: Chú hươu cao cổ 3D Pixar mỉm cười đáng yêu, A friendly baby elephant..."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  {/* Style selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-2">
+                      Chọn phong cách minh họa:
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {AI_DRAWING_STYLES.map((style) => (
+                        <button
+                          key={style.id}
+                          type="button"
+                          onClick={() => setAiDrawStyle(style.id)}
+                          className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                            aiDrawStyle === style.id
+                              ? 'border-emerald-600 bg-emerald-50/70 ring-2 ring-emerald-500/20'
+                              : 'border-slate-200 hover:border-slate-300 bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-xs font-bold text-slate-800">{style.name}</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                              {style.badge}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 line-clamp-1">{style.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Two Methods Box */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                    {/* Method 1: Direct DALL-E 3 API */}
+                    <div className="p-4 rounded-xl border-2 border-emerald-400 bg-emerald-50/40 space-y-3 flex flex-col justify-between shadow-2xs">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                            <Zap className="w-4 h-4 text-emerald-600" />
+                            Cách 1: Vẽ trực tiếp bằng API
+                          </span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                            Tự động 100%
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600">
+                          Ảnh được ChatGPT vẽ và tự động nhúng thẳng vào ứng dụng trong vài giây.
+                        </p>
+
+                        {/* OpenAI API Key status / input */}
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-semibold text-slate-700">OpenAI API Key:</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowOpenaiKeySettings(!showOpenaiKeySettings)}
+                              className="text-emerald-700 hover:underline font-bold cursor-pointer"
+                            >
+                              {openaiKeyInput ? 'Đổi Key' : 'Nhập Key'}
+                            </button>
+                          </div>
+                          {(!openaiKeyInput || showOpenaiKeySettings) ? (
+                            <div className="flex gap-1.5">
+                              <input
+                                type="password"
+                                placeholder="sk-proj-..."
+                                value={openaiKeyInput}
+                                onChange={(e) => setOpenaiKeyInput(e.target.value)}
+                                className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-mono bg-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleSaveOpenaiKey}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shrink-0 cursor-pointer"
+                              >
+                                Lưu
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="font-mono">••••••••••••••••</span>
+                              <span className="text-[10px] text-slate-500">(Đã lưu)</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiDrawEngine('chatgpt-dalle');
+                          handleGenerateCustomIllustration();
+                        }}
+                        disabled={isAiGeneratingIllustration || (!aiCustomPrompt.trim() && !cropWord.trim())}
+                        className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50 mt-2"
+                      >
+                        {isAiGeneratingIllustration ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>ChatGPT đang vẽ...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Wand2 className="w-4 h-4" />
+                            <span>Bắt đầu vẽ bằng ChatGPT (API)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Method 2: Free ChatGPT Web (1-Click) */}
+                    <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3 flex flex-col justify-between shadow-2xs">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                            <Bot className="w-4 h-4 text-emerald-600" />
+                            Cách 2: Vẽ trên Web ChatGPT
+                          </span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                            Miễn phí 100%
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600">
+                          Dành cho thầy cô dùng tài khoản ChatGPT trên web (chatgpt.com). Tự động copy prompt chuẩn và mở ChatGPT.
+                        </p>
+                        <div className="text-[11px] text-slate-500 space-y-1 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                          <p>1. Bấm nút dưới (Prompt chuẩn sẽ tự động copy).</p>
+                          <p>2. Dán (Ctrl+V) vào ChatGPT để vẽ tranh.</p>
+                          <p>3. Chuột phải vào ảnh -> Chọn "Sao chép hình ảnh", rồi dán (Ctrl+V) vào app.</p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleOpenChatGPTWebWithPrompt}
+                        className="w-full py-2.5 px-4 rounded-xl border border-emerald-500 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-2xs cursor-pointer mt-2"
+                      >
+                        <ExternalLink className="w-4 h-4 text-emerald-700" />
+                        <span>🚀 Mở ChatGPT để vẽ (Đã copy Prompt)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Preview Result if generated */}
+                  {aiGeneratedPreview && (
+                    <div className="pt-3 border-t border-slate-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">Kết quả tranh vẽ ChatGPT:</span>
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          {aiGeneratedEngineUsed}
+                        </span>
+                      </div>
+                      <div className="aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center max-w-sm mx-auto shadow-inner">
+                        <img
+                          src={aiGeneratedPreview}
+                          alt="AI generated illustration"
+                          className="w-full h-full object-contain bg-white"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleApplyAiIllustrationToCard}
+                          className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          Dùng hình này cho thẻ từ vựng
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAiDrawEngine('chatgpt-dalle');
+                            handleGenerateCustomIllustration();
+                          }}
+                          disabled={isAiGeneratingIllustration}
+                          className="py-2.5 px-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Vẽ lại
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fast Paste Dropzone inside modal */}
+                  <div
+                    onPaste={handlePasteExternalImage}
+                    tabIndex={0}
+                    className="p-4 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50/70 text-center cursor-pointer transition-colors outline-none focus:border-emerald-600 focus:bg-emerald-50/30"
+                  >
+                    <p className="text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5">
+                      <Clipboard className="w-4 h-4 text-emerald-600" />
+                      Dán ảnh từ ChatGPT vào đây (ấn Ctrl + V)
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Sau khi sao chép ảnh từ ChatGPT web, bấm vào ô này rồi nhấn Ctrl + V để nạp ảnh ngay lập tức.
+                    </p>
+                  </div>
+                </div>
               ) : (
-                /* TAB 2: EXTERNAL AI PROMPT HELPER (ChatGPT & Canva) */
+                /* TAB 2: EXTERNAL AI PROMPT HELPER (Canva & Other) */
                 <div className="space-y-4">
                   <div className="p-3.5 rounded-xl bg-indigo-50/80 border border-indigo-200 text-xs text-indigo-900 leading-relaxed">
                     💡 <strong>Hỗ trợ ChatGPT (DALL-E 3) & Canva:</strong> Thầy cô có thể sinh Prompt chuyên nghiệp bằng tiếng Anh, sao chép sang ChatGPT hoặc Canva để vẽ ảnh theo ý muốn, sau đó dán trực tiếp kết quả ảnh vào đây!
@@ -2432,6 +2759,20 @@ export function ContentStudio({
                         {st.name}
                       </option>
                     ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <span>Công nghệ AI:</span>
+                  <select
+                    value={batchDrawEngine}
+                    onChange={(e) => setBatchDrawEngine(e.target.value as 'smart-auto' | 'chatgpt-dalle' | 'gemini-svg' | 'imagen-3')}
+                    className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-800 outline-none cursor-pointer"
+                  >
+                    <option value="smart-auto">⚡ Tự động thông minh</option>
+                    <option value="chatgpt-dalle">🤖 ChatGPT (DALL-E 3)</option>
+                    <option value="gemini-svg">📐 Vector SVG (Gemini)</option>
+                    <option value="imagen-3">🖼️ Google Imagen 3</option>
                   </select>
                 </div>
               </div>

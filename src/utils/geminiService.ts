@@ -414,11 +414,81 @@ export const AI_DRAWING_STYLES = [
   },
 ];
 
+export function getStoredOpenAIApiKey(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('openai_api_key') || '';
+}
+
+export function saveStoredOpenAIApiKey(key: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('openai_api_key', key.trim());
+}
+
+export async function generateIllustrationWithChatGPTDallE(params: {
+  prompt: string;
+  style?: string;
+  apiKey?: string;
+}): Promise<{
+  imageDataUrl: string;
+  revisedPrompt?: string;
+}> {
+  const key = (params.apiKey || getStoredOpenAIApiKey()).trim();
+  if (!key) {
+    throw new Error(
+      'Chưa cấu hình OpenAI API Key (ChatGPT). Vui lòng nhập OpenAI API Key để vẽ ảnh trực tiếp, hoặc dùng nút "Mở ChatGPT trên Web" để vẽ miễn phí.'
+    );
+  }
+
+  const selectedStyle = AI_DRAWING_STYLES.find((s) => s.id === params.style) || AI_DRAWING_STYLES[0];
+  const fullPrompt = `Masterpiece children educational illustration of: ${params.prompt}. Style: ${selectedStyle.guide}. Cute, vibrant colors, centered composition, soft isolated clean background, high resolution, child-friendly art, no text, letters or words on the image.`;
+
+  const response = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: 'dall-e-3',
+      prompt: fullPrompt,
+      n: 1,
+      size: '1024x1024',
+      quality: 'standard',
+      response_format: 'b64_json',
+    }),
+  });
+
+  if (!response.ok) {
+    let errMessage = `Lỗi OpenAI API (${response.status})`;
+    try {
+      const errJson = await response.json();
+      if (errJson?.error?.message) {
+        errMessage = `ChatGPT DALL-E 3: ${errJson.error.message}`;
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(errMessage);
+  }
+
+  const json = await response.json();
+  const b64 = json?.data?.[0]?.b64_json;
+  if (!b64) {
+    throw new Error('Không nhận được dữ liệu ảnh Base64 từ OpenAI.');
+  }
+
+  return {
+    imageDataUrl: `data:image/png;base64,${b64}`,
+    revisedPrompt: json?.data?.[0]?.revised_prompt,
+  };
+}
+
 export async function generateIllustrationWithAI(params: {
   prompt: string;
   style?: string;
   sourceImageBase64?: string;
-  engine?: 'smart-auto' | 'gemini-svg' | 'imagen-3';
+  engine?: 'smart-auto' | 'gemini-svg' | 'imagen-3' | 'chatgpt-dalle';
+  openaiApiKey?: string;
 }): Promise<{
   imageDataUrl: string;
   engineUsed: string;
@@ -444,6 +514,20 @@ export async function generateIllustrationWithAI(params: {
         targetPrompt = 'A cheerful cute educational illustration for kids';
       }
     }
+  }
+
+  // Step 2: If engine is 'chatgpt-dalle', generate with ChatGPT DALL-E 3
+  if (engine === 'chatgpt-dalle') {
+    const chatGptRes = await generateIllustrationWithChatGPTDallE({
+      prompt: targetPrompt,
+      style,
+      apiKey: params.openaiApiKey,
+    });
+    return {
+      imageDataUrl: chatGptRes.imageDataUrl,
+      engineUsed: 'ChatGPT DALL-E 3 (OpenAI)',
+      recognized,
+    };
   }
 
   const selectedStyle = AI_DRAWING_STYLES.find((s) => s.id === style) || AI_DRAWING_STYLES[0];

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { KeyRound, Sparkles, ExternalLink, Check, AlertCircle, X, ShieldCheck } from 'lucide-react';
+import { KeyRound, Sparkles, ExternalLink, Check, AlertCircle, X, ShieldCheck, Bot } from 'lucide-react';
 import {
   AI_MODELS,
   getStoredApiKey,
   getStoredModel,
+  getStoredOpenAIApiKey,
   saveStoredApiKey,
   saveStoredModel,
+  saveStoredOpenAIApiKey,
 } from '../utils/geminiService';
 import type { AIModelId } from '../types/edtech';
 
@@ -17,6 +19,7 @@ interface ApiKeyModalProps {
 
 export function ApiKeyModal({ isOpen, onClose, onSaved }: ApiKeyModalProps) {
   const [apiKey, setApiKey] = useState('');
+  const [openaiKey, setOpenaiKey] = useState('');
   const [selectedModel, setSelectedModel] = useState<AIModelId>('gemini-3-flash-preview');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -24,6 +27,7 @@ export function ApiKeyModal({ isOpen, onClose, onSaved }: ApiKeyModalProps) {
   useEffect(() => {
     if (isOpen) {
       setApiKey(getStoredApiKey());
+      setOpenaiKey(getStoredOpenAIApiKey());
       setSelectedModel(getStoredModel());
       setErrorMessage(null);
     }
@@ -34,11 +38,12 @@ export function ApiKeyModal({ isOpen, onClose, onSaved }: ApiKeyModalProps) {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!apiKey.trim()) {
-      setErrorMessage('Vui lòng nhập API key của bạn để kích hoạt các tính năng AI.');
+      setErrorMessage('Vui lòng nhập Gemini API key của bạn để kích hoạt các tính năng AI.');
       return;
     }
 
     saveStoredApiKey(apiKey.trim());
+    saveStoredOpenAIApiKey(openaiKey.trim());
     saveStoredModel(selectedModel);
     setShowSuccessToast(true);
     setErrorMessage(null);
@@ -121,6 +126,34 @@ export function ApiKeyModal({ isOpen, onClose, onSaved }: ApiKeyModalProps) {
                 {errorMessage}
               </p>
             )}
+          </div>
+
+          {/* OpenAI API Key Input (for ChatGPT DALL-E 3) */}
+          <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                <Bot className="w-4 h-4 text-emerald-700" />
+                OpenAI API Key (Vẽ tranh bằng ChatGPT DALL-E 3) - Tùy chọn:
+              </label>
+              <a
+                href="https://platform.openai.com/api-keys"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] font-semibold text-emerald-700 hover:underline flex items-center gap-0.5"
+              >
+                Lấy OpenAI Key <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+            <input
+              type="password"
+              placeholder="sk-proj-..."
+              value={openaiKey}
+              onChange={(e) => setOpenaiKey(e.target.value)}
+              className="w-full px-3.5 py-2 rounded-lg border border-emerald-300 bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none font-mono text-xs text-slate-800"
+            />
+            <p className="text-[11px] text-emerald-800/80">
+              Dùng để kích hoạt tính năng vẽ tranh minh họa trực tiếp bằng ChatGPT DALL-E 3. (Nếu không có key, thầy cô vẫn có thể dùng nút mở ChatGPT trên web để vẽ miễn phí).
+            </p>
           </div>
 
           {/* Model Cards Selection */}
