@@ -46,6 +46,7 @@ import {
   ensureDirectoryHandleAndPermission,
   getSavedDirectoryName,
   pickAndSaveLocalDirectory,
+  saveActiveDatabaseToDirectory,
   saveFileToChosenDirectory,
 } from './utils/localStorageDirectory';
 
@@ -264,6 +265,23 @@ export default function App() {
     }
   };
 
+  const handleReloadActiveDatabase = async (jsonContent: string) => {
+    try {
+      const parsed = JSON.parse(jsonContent) as ExportPackage;
+      const nextState = await importPortablePackage(parsed);
+      setDecks(nextState.decks);
+      setCards(nextState.cards);
+      setSettings(nextState.settings);
+      if (nextState.decks[0]) {
+        setSelectedDeckId(nextState.decks[0].id);
+      }
+      setStorageStats(computeStorageStats(nextState.decks, nextState.cards, nextState.settings));
+      showToast(`🎉 Đã nạp thành công ${nextState.decks.length} chủ đề và ${nextState.cards.length} thẻ từ thư mục máy tính!`);
+    } catch (err: unknown) {
+      showToast(`Không thể nạp dữ liệu: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   // Local Computer Directory Picker & Save (Requirement 2 & Image 3)
   const handlePickOrSaveLocalDir = async () => {
     try {
@@ -274,8 +292,7 @@ export default function App() {
       }
       const pkg = await buildPortableExportPackage(decks, cards, settings);
       const jsonContent = JSON.stringify(pkg, null, 2);
-      const filename = `tieng-anh-thay-phuc-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      const saveRes = await saveFileToChosenDirectory(filename, jsonContent, dirCheck.handle);
+      const saveRes = await saveActiveDatabaseToDirectory(jsonContent, dirCheck.handle);
       showToast(saveRes.message);
     } catch (err: unknown) {
       showToast(`Lỗi lưu máy tính: ${err instanceof Error ? err.message : String(err)}`);
@@ -638,6 +655,7 @@ export default function App() {
                 localDirName={localDirName}
                 onLocalDirChange={setLocalDirName}
                 onShowToast={showToast}
+                onReloadActiveDatabase={handleReloadActiveDatabase}
               />
             )}
           </>
