@@ -43,6 +43,7 @@ import {
 import type { BrandSettings, ExportPackage, LessonDeck, NavTab, VocabCard } from './types/edtech';
 import { getStoredApiKey } from './utils/geminiService';
 import {
+  ensureDirectoryHandleAndPermission,
   getSavedDirectoryName,
   pickAndSaveLocalDirectory,
   saveFileToChosenDirectory,
@@ -265,28 +266,19 @@ export default function App() {
 
   // Local Computer Directory Picker & Save (Requirement 2 & Image 3)
   const handlePickOrSaveLocalDir = async () => {
-    const savedName = getSavedDirectoryName();
-    if (!savedName) {
-      // Pick a directory for the first time
-      const res = await pickAndSaveLocalDirectory();
-      if (res.success) {
-        setLocalDirName(res.dirName);
-        // Save current package to it
-        const pkg = await buildPortableExportPackage(decks, cards, settings);
-        const jsonContent = JSON.stringify(pkg, null, 2);
-        const filename = `tieng-anh-thay-phuc-backup-${new Date().toISOString().slice(0, 10)}.json`;
-        const saveRes = await saveFileToChosenDirectory(filename, jsonContent);
-        showToast(saveRes.message);
-      } else if (res.error) {
-        showToast(res.error);
+    try {
+      showToast('Đang kết nối thư mục máy tính...');
+      const dirCheck = await ensureDirectoryHandleAndPermission(true);
+      if (dirCheck.dirName) {
+        setLocalDirName(dirCheck.dirName);
       }
-    } else {
-      // Save directly to the already selected directory
       const pkg = await buildPortableExportPackage(decks, cards, settings);
       const jsonContent = JSON.stringify(pkg, null, 2);
       const filename = `tieng-anh-thay-phuc-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      const saveRes = await saveFileToChosenDirectory(filename, jsonContent);
+      const saveRes = await saveFileToChosenDirectory(filename, jsonContent, dirCheck.handle);
       showToast(saveRes.message);
+    } catch (err: unknown) {
+      showToast(`Lỗi lưu máy tính: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -643,6 +635,9 @@ export default function App() {
                 onExportPackage={handleExportPackage}
                 onImportPackage={handleImportPackage}
                 onResetSampleData={handleResetSampleData}
+                localDirName={localDirName}
+                onLocalDirChange={setLocalDirName}
+                onShowToast={showToast}
               />
             )}
           </>

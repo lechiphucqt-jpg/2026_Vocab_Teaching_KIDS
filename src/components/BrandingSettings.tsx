@@ -1,14 +1,19 @@
 import { useState, useEffect } from 'react';
 import {
+  AlertCircle,
   Check,
+  CheckCircle2,
   Database,
   Download,
   FolderOpen,
   HardDrive,
+  Info,
+  Loader2,
   RotateCcw,
   Save,
   ShieldCheck,
   Upload,
+  X,
 } from 'lucide-react';
 import type { BrandSettings, LessonDeck, StorageStats, VocabCard } from '../types/edtech';
 import {
@@ -18,6 +23,7 @@ import {
 } from '../utils/mediaUtils';
 import { buildPortableExportPackage } from '../db/localDb';
 import {
+  ensureDirectoryHandleAndPermission,
   getSavedDirectoryName,
   pickAndSaveLocalDirectory,
   saveFileToChosenDirectory,
@@ -33,51 +39,101 @@ interface BrandingSettingsProps {
   onExportPackage: () => Promise<void>;
   onImportPackage: (file: File) => Promise<void>;
   onResetSampleData: () => Promise<void>;
+  localDirName?: string | null;
+  onLocalDirChange?: (dirName: string) => void;
+  onShowToast?: (msg: string) => void;
 }
 
 export function BrandingSettings({
   settings,
   storageStats,
+  decks,
+  cards,
   onUpdateSettings,
   onExportPackage,
   onImportPackage,
   onResetSampleData,
+  localDirName,
+  onLocalDirChange,
+  onShowToast,
 }: BrandingSettingsProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
-  const [chosenLocalDir, setChosenLocalDir] = useState<string | null>(getSavedDirectoryName());
+  const [chosenLocalDir, setChosenLocalDir] = useState<string | null>(localDirName || getSavedDirectoryName());
   const [isSavingLocalDir, setIsSavingLocalDir] = useState(false);
+  const [justSavedSuccessfully, setJustSavedSuccessfully] = useState(false);
+  const [localDirNotice, setLocalDirNotice] = useState<{
+    text: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
 
   useEffect(() => {
-    setChosenLocalDir(getSavedDirectoryName());
-  }, []);
+    setChosenLocalDir(localDirName || getSavedDirectoryName());
+  }, [localDirName]);
 
   const flashNotice = (msg: string) => {
     setNotice(msg);
-    window.setTimeout(() => setNotice(null), 3500);
+    window.setTimeout(() => setNotice(null), 4000);
   };
 
   const handlePickDirectory = async () => {
+    setLocalDirNotice(null);
     const res = await pickAndSaveLocalDirectory();
     if (res.success) {
       setChosenLocalDir(res.dirName);
-      flashNotice(`Đã kết nối thành công với thư mục máy tính: "${res.dirName}".`);
+      if (onLocalDirChange) onLocalDirChange(res.dirName);
+      const msg = `Đã kết nối thành công với thư mục máy tính: "${res.dirName}".`;
+      setLocalDirNotice({ text: msg, type: 'success' });
+      flashNotice(msg);
+      if (onShowToast) onShowToast(msg);
     } else if (res.error) {
+      setLocalDirNotice({ text: res.error, type: 'error' });
       flashNotice(res.error);
+      if (onShowToast) onShowToast(res.error);
     }
   };
 
   const handleSaveToChosenDirectory = async () => {
     setIsSavingLocalDir(true);
+    setLocalDirNotice(null);
     try {
+      // Step 1: Ensure directory handle & active permissions FIRST (within active user gesture)
+      const dirCheck = await ensureDirectoryHandleAndPermission(true);
+      if (dirCheck.dirName) {
+        setChosenLocalDir(dirCheck.dirName);
+        if (onLocalDirChange) onLocalDirChange(dirCheck.dirName);
+      }
+
+      // Step 2: Build the portable package
       const pkg = await buildPortableExportPackage(decks, cards, settings);
       const jsonContent = JSON.stringify(pkg, null, 2);
       const filename = `tieng-anh-thay-phuc-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      const res = await saveFileToChosenDirectory(filename, jsonContent);
+
+      // Step 3: Save to the handle, or fallback to browser download
+      const res = await saveFileToChosenDirectory(filename, jsonContent, dirCheck.handle);
+
+      if (res.success) {
+        setJustSavedSuccessfully(true);
+        setTimeout(() => setJustSavedSuccessfully(false), 3000);
+        setLocalDirNotice({
+          text: res.message,
+          type: 'success',
+        });
+      } else {
+        setLocalDirNotice({
+          text: res.message,
+          type: 'error',
+        });
+      }
+
       flashNotice(res.message);
+      if (onShowToast) onShowToast(res.message);
     } catch (err: unknown) {
-      flashNotice(`Lỗi lưu tệp: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = `Lỗi lưu tệp: ${err instanceof Error ? err.message : String(err)}`;
+      setLocalDirNotice({ text: msg, type: 'error' });
+      flashNotice(msg);
+      if (onShowToast) onShowToast(msg);
     } finally {
       setIsSavingLocalDir(false);
     }
@@ -350,7 +406,7 @@ export function BrandingSettings({
                 <button
                   type="button"
                   onClick={handlePickDirectory}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-300 bg-[#ecfdf5] hover:bg-[#dcfce7] text-[#15803d] text-xs font-bold transition-colors cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-emerald-300 bg-[#ecfdf5] hover:bg-[#dcfce7] text-[#15803d] text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                 >
                   <FolderOpen className="w-3.5 h-3.5" />
                   Chọn thư mục máy tính...
@@ -360,14 +416,62 @@ export function BrandingSettings({
                   type="button"
                   disabled={isSavingLocalDir}
                   onClick={handleSaveToChosenDirectory}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-60 cursor-pointer shadow-xs ${
+                    justSavedSuccessfully
+                      ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-400'
+                      : 'bg-[#15803d] hover:bg-[#166534]'
+                  }`}
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  {isSavingLocalDir ? 'Đang lưu...' : 'Lưu ngay vào thư mục'}
+                  {isSavingLocalDir ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang lưu vào máy...</span>
+                    </>
+                  ) : justSavedSuccessfully ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                      <span>Đã lưu thành công!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Lưu ngay vào thư mục</span>
+                    </>
+                  )}
                 </button>
               </div>
+
+              {/* Instant inline status feedback right under the buttons */}
+              {localDirNotice && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold flex items-start justify-between gap-2.5 transition-all animate-in fade-in ${
+                    localDirNotice.type === 'success'
+                      ? 'bg-emerald-50 border border-emerald-300 text-emerald-900 shadow-2xs'
+                      : localDirNotice.type === 'error'
+                      ? 'bg-rose-50 border border-rose-300 text-rose-900'
+                      : 'bg-blue-50 border border-blue-300 text-blue-900'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    {localDirNotice.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    )}
+                    <span>{localDirNotice.text}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLocalDirNotice(null)}
+                    className="text-slate-400 hover:text-slate-700 cursor-pointer shrink-0 ml-1 p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               <p className="text-[11px] text-slate-500 italic">
-                💡 Dữ liệu bài giảng sẽ được ghi trực tiếp vào ổ đĩa của máy tính (không qua hộp thoại download của trình duyệt).
+                💡 Dữ liệu bài giảng sẽ được ghi trực tiếp vào ổ đĩa của máy tính (hoặc tải về tự động nếu trình duyệt hạn chế quyền ghi).
               </p>
             </div>
 
