@@ -423,7 +423,6 @@ export function ContentStudio({
           ctx.fillText(r.label, rx + 6, ry + 14);
         }
       });
-      });
 
       // Draw active rubber-band selection
       if (rect && rect.w > 4 && rect.h > 4) {
