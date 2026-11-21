@@ -2466,7 +2466,7 @@ export function ContentStudio({
                         <div className="text-[11px] text-slate-500 space-y-1 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                           <p>1. Bấm nút dưới (Prompt chuẩn sẽ tự động copy).</p>
                           <p>2. Dán (Ctrl+V) vào ChatGPT để vẽ tranh.</p>
-                          <p>3. Chuột phải vào ảnh -> Chọn "Sao chép hình ảnh", rồi dán (Ctrl+V) vào app.</p>
+                          <p>3. Chuột phải vào ảnh → Chọn "Sao chép hình ảnh", rồi dán (Ctrl+V) vào app.</p>
                         </div>
                       </div>
 
