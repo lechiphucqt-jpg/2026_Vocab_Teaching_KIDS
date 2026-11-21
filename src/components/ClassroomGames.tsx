@@ -2541,7 +2541,12 @@ export function ClassroomGames({
             </div>
 
             <p className="text-xs text-slate-500 font-medium">
-              Nghĩa tiếng Việt: <strong className="text-slate-800">{currentScrambleCard.meaning}</strong> · Phiên âm: <span className="font-mono">{currentScrambleCard.phonetic}</span>
+              {showVietnamese && (
+                <>
+                  Nghĩa tiếng Việt: <strong className="text-slate-800">{currentScrambleCard.meaning}</strong> ·{' '}
+                </>
+              )}
+              Phiên âm: <span className="font-mono">{currentScrambleCard.phonetic}</span>
             </p>
 
             {/* Built Slots */}
@@ -2736,7 +2741,10 @@ export function ClassroomGames({
                           onClick={() => handleAnswerMysteryBox(opt)}
                           className="py-3 px-4 rounded-xl border border-amber-300 bg-white hover:bg-amber-100/70 font-bold text-sm text-slate-800 transition-colors shadow-2xs cursor-pointer text-center"
                         >
-                          {opt.word}
+                          <div>{opt.word}</div>
+                          {showVietnamese && (
+                            <div className="text-[11px] font-normal text-slate-500 mt-0.5">({opt.meaning})</div>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -3047,6 +3055,9 @@ export function ClassroomGames({
                 <span className="font-display font-extrabold text-base text-slate-800 mt-1">
                   {currentSortCard.word}
                 </span>
+                {showVietnamese && (
+                  <span className="text-xs text-slate-500 font-semibold block">({currentSortCard.meaning})</span>
+                )}
               </div>
             </div>
 
@@ -3196,7 +3207,12 @@ export function ClassroomGames({
             </div>
 
             <p className="text-xs text-slate-500 font-medium">
-              Nghĩa: <strong className="text-slate-800">{currentSpellCard.meaning}</strong> · Phiên âm: <span className="font-mono">{currentSpellCard.phonetic}</span>
+              {showVietnamese && (
+                <>
+                  Nghĩa: <strong className="text-slate-800">{currentSpellCard.meaning}</strong> ·{' '}
+                </>
+              )}
+              Phiên âm: <span className="font-mono">{currentSpellCard.phonetic}</span>
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-2 min-h-[52px]">
@@ -3276,7 +3292,7 @@ export function ClassroomGames({
                   {currentTabooCard.word}
                 </h2>
                 <p className="text-xs text-slate-600 mt-1 font-mono">
-                  {currentTabooCard.phonetic} · {currentTabooCard.meaning}
+                  {showVietnamese ? `${currentTabooCard.phonetic} · ${currentTabooCard.meaning}` : currentTabooCard.phonetic}
                 </p>
               </div>
 
@@ -3326,6 +3342,11 @@ export function ClassroomGames({
               <p className="text-xs text-slate-600 mt-1">
                 Bấm các khối từ theo đúng thứ tự để tạo thành câu hoàn chỉnh:
               </p>
+              {showVietnamese && (
+                <p className="text-xs font-semibold text-emerald-800 mt-1">
+                  Gợi ý nghĩa: "{currentSentenceCard.meaning}"
+                </p>
+              )}
             </div>
 
             <div className="min-h-[64px] p-4 rounded-2xl border-2 border-dashed border-emerald-400 bg-emerald-50/50 flex flex-wrap items-center justify-center gap-2">
@@ -3422,7 +3443,10 @@ export function ClassroomGames({
                       onClick={() => handleEscapeRoomAnswer(opt)}
                       className="py-3 px-4 rounded-xl border border-amber-300 bg-white hover:bg-amber-50 font-bold text-sm text-slate-800 shadow-2xs transition-all cursor-pointer text-center"
                     >
-                      🗝️ {opt.word}
+                      <div>🗝️ {opt.word}</div>
+                      {showVietnamese && (
+                        <div className="text-[11px] font-normal text-slate-500 mt-0.5">({opt.meaning})</div>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -3602,9 +3626,11 @@ export function ClassroomGames({
                   </div>
                 )}
 
-                <p className="text-xs font-semibold text-slate-500">
-                  Ý nghĩa tiếng Việt: <span className="text-slate-900 font-bold">"{teamRaceCurrentCard.meaning}"</span>
-                </p>
+                {showVietnamese && (
+                  <p className="text-xs font-semibold text-slate-500">
+                    Ý nghĩa tiếng Việt: <span className="text-slate-900 font-bold">"{teamRaceCurrentCard.meaning}"</span>
+                  </p>
+                )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto pt-2">
                   {teamRaceChoices.map((c) => (
@@ -3712,9 +3738,11 @@ export function ClassroomGames({
                   <p className="text-xs font-bold text-slate-500 mb-1">
                     Lượt của <span className="text-purple-700 font-extrabold">{nextTeamName(activeTeam)}</span>: Chọn từ vựng đúng để kích hoạt nguồn năng lượng:
                   </p>
-                  <p className="text-sm font-black text-slate-900">
-                    "{gimkitCurrentCard.meaning}"
-                  </p>
+                  {showVietnamese && (
+                    <p className="text-sm font-black text-slate-900">
+                      "{gimkitCurrentCard.meaning}"
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto pt-2">
@@ -4261,13 +4289,16 @@ export function ClassroomGames({
                     />
                   </div>
 
-                  <div className="space-y-1">
-                    <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">
-                      Nghĩa tiếng Việt:
-                    </p>
-                    <p className="text-xl font-black text-slate-900">
-                      "{surveyModalCard.meaning}"
-                    </p>
+                  {showVietnamese && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                        Nghĩa tiếng Việt:
+                      </p>
+                      <p className="text-xl font-black text-slate-900">
+                        "{surveyModalCard.meaning}"
+                      </p>
+                    </div>
+                  )}
                     <div className="flex items-center justify-center gap-2 pt-1">
                       <span className="text-sm font-semibold text-slate-500">Từ tiếng Anh:</span>
                       <span className="text-2xl font-black text-indigo-700">{surveyModalCard.word}</span>
@@ -4495,9 +4526,11 @@ export function ClassroomGames({
                     </button>
                   </div>
 
-                  <p className="text-base font-extrabold text-white">
-                    Ý nghĩa: <span className="text-amber-400">"{asterCurrentCard.meaning}"</span>
-                  </p>
+                  {showVietnamese && (
+                    <p className="text-base font-extrabold text-white">
+                      Ý nghĩa: <span className="text-amber-400">"{asterCurrentCard.meaning}"</span>
+                    </p>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl mx-auto pt-2">
                     {asterChoices.map((c) => (
@@ -4531,7 +4564,7 @@ export function ClassroomGames({
               {scoreA > scoreB
                 ? `🏆 Chúc mừng ${nextTeamName('A')} chiến thắng (${scoreA} - ${scoreB})!`
                 : scoreB > scoreA
-                ? `🏆 Chúc mừng ${settings.teamBName} chiến thắng (${scoreB} - ${scoreA})!`
+                ? `🏆 Chúc mừng ${nextTeamName('B')} chiến thắng (${scoreB} - ${scoreA})!`
                 : `🤝 Trận đấu hòa nhau kịch tính (${scoreA} - ${scoreB})!`}
             </p>
             <button
