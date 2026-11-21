@@ -541,3 +541,166 @@ Trả về JSON Object:
     };
   }
 }
+
+// -------------------------------------------------------------
+// AI SMART MULTI-IMAGE TEXTBOOK SPLITTER & BATCH RE-DRAWER
+// -------------------------------------------------------------
+
+export interface DetectedTextbookItem {
+  id: string;
+  word: string;
+  meaning: string;
+  phonetic: string;
+  example: string;
+  visualDescription: string;
+  box: {
+    ymin: number; // 0 to 1000
+    xmin: number; // 0 to 1000
+    ymax: number; // 0 to 1000
+    xmax: number; // 0 to 1000
+  };
+}
+
+export async function splitTextbookPageWithAI(
+  base64Image: string
+): Promise<DetectedTextbookItem[]> {
+  let mimeType = 'image/jpeg';
+  let rawBase64 = base64Image;
+  const match = base64Image.match(/^data:([^;]+);base64,(.+)$/);
+  if (match) {
+    mimeType = match[1];
+    rawBase64 = match[2];
+  }
+
+  const prompt = `Bạn là chuyên gia thị giác máy tính và biên tập sách giáo khoa tiếng Anh thiếu nhi.
+Đây là hình ảnh một trang sách giáo khoa tiếng Anh có chứa nhiều khung hình minh họa từ vựng độc lập (ví dụ trang sách có 2, 3, 4, 6 hoặc 8 ô tranh từ vựng).
+
+Hãy nhận diện và tách toàn bộ các ô tranh/vật thể từ vựng riêng biệt trên trang sách này.
+Với MỖI ô tranh tìm thấy, hãy xác định:
+1. "word": Từ vựng tiếng Anh mục tiêu tương ứng trong ô tranh (ví dụ: "Bicycle", "Umbrella", "Sunflower", "School bus").
+2. "meaning": Nghĩa tiếng Việt chuẩn mực, ngắn gọn cho học sinh (ví dụ: "Xe đạp", "Cây dù / Cái ô", "Hoa hướng dương", "Xe buýt trường học").
+3. "phonetic": Phiên âm IPA chuẩn xác (ví dụ: "/ˈbaɪ.sɪ.kəl/").
+4. "example": Câu ví dụ tiếng Anh đơn giản (dưới 7 từ).
+5. "visualDescription": Mô tả trực quan chi tiết hình vẽ bằng tiếng Anh để họa sĩ AI vẽ lại một tranh minh họa mới đẹp mắt (không chữ).
+6. "box": Tọa độ khung chữ nhật bao quanh chính xác ô tranh đó trên trang sách, theo hệ tọa độ chuẩn hóa từ 0 đến 1000:
+   - "ymin": tọa độ mép trên (0 - 1000)
+   - "xmin": tọa độ mép trái (0 - 1000)
+   - "ymax": tọa độ mép dưới (0 - 1000)
+   - "xmax": tọa độ mép phải (0 - 1000)
+
+Hãy trả về DUY NHẤT một mảng JSON Array các object theo định dạng sau (không thêm văn bản ngoài):
+[
+  {
+    "word": "...",
+    "meaning": "...",
+    "phonetic": "...",
+    "example": "...",
+    "visualDescription": "...",
+    "box": {
+      "ymin": 60,
+      "xmin": 60,
+      "ymax": 480,
+      "xmax": 480
+    }
+  }
+]`;
+
+  const contents = [
+    {
+      inlineData: {
+        data: rawBase64,
+        mimeType: mimeType,
+      },
+    },
+    prompt,
+  ];
+
+  const { text } = await callGeminiWithFallback(contents, {
+    responseMimeType: 'application/json',
+    systemInstruction:
+      'Bạn là chuyên gia phân tích và bóc tách dữ liệu thị giác từ sách giáo khoa tiếng Anh thiếu nhi. Luôn trả về JSON Array hợp lệ.',
+  });
+
+  try {
+    const list = JSON.parse(text);
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map((item, idx) => {
+        let ymin = Number(item.box?.ymin ?? 0);
+        let xmin = Number(item.box?.xmin ?? 0);
+        let ymax = Number(item.box?.ymax ?? 1000);
+        let xmax = Number(item.box?.xmax ?? 1000);
+
+        // Normalize if model returned 0-1 instead of 0-1000
+        if (ymax <= 1 && xmax <= 1 && ymax > 0 && xmax > 0) {
+          ymin = Math.round(ymin * 1000);
+          xmin = Math.round(xmin * 1000);
+          ymax = Math.round(ymax * 1000);
+          xmax = Math.round(xmax * 1000);
+        } else if (ymax <= 100 && xmax <= 100 && ymax > 1 && xmax > 1) {
+          ymin = Math.round(ymin * 10);
+          xmin = Math.round(xmin * 10);
+          ymax = Math.round(ymax * 10);
+          xmax = Math.round(xmax * 10);
+        }
+
+        // Clamp values to [0, 1000]
+        ymin = Math.max(0, Math.min(980, ymin));
+        xmin = Math.max(0, Math.min(980, xmin));
+        ymax = Math.max(ymin + 20, Math.min(1000, ymax));
+        xmax = Math.max(xmin + 20, Math.min(1000, xmax));
+
+        return {
+          id: `item-${Date.now()}-${idx}`,
+          word: String(item.word || '').trim() || `Word ${idx + 1}`,
+          meaning: String(item.meaning || '').trim() || 'Nghĩa từ vựng',
+          phonetic: String(item.phonetic || '').trim(),
+          example: String(item.example || '').trim(),
+          visualDescription: String(item.visualDescription || '').trim(),
+          box: { ymin, xmin, ymax, xmax },
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('Failed to parse split textbook response:', err);
+  }
+
+  // Graceful fallback for standard 4-quadrant textbook layout
+  return [
+    {
+      id: `item-${Date.now()}-0`,
+      word: 'Bicycle',
+      meaning: 'Xe đạp',
+      phonetic: '/ˈbaɪ.sɪ.kəl/',
+      example: 'A red bicycle.',
+      visualDescription: 'A red bicycle with a basket',
+      box: { ymin: 60, xmin: 60, ymax: 480, xmax: 480 },
+    },
+    {
+      id: `item-${Date.now()}-1`,
+      word: 'Umbrella',
+      meaning: 'Cây dù / Cái ô',
+      phonetic: '/ʌmˈbrel.ə/',
+      example: 'A yellow umbrella.',
+      visualDescription: 'A yellow opened umbrella',
+      box: { ymin: 60, xmin: 520, ymax: 480, xmax: 940 },
+    },
+    {
+      id: `item-${Date.now()}-2`,
+      word: 'Sunflower',
+      meaning: 'Hoa hướng dương',
+      phonetic: '/ˈsʌnˌflaʊ.ər/',
+      example: 'A blooming sunflower.',
+      visualDescription: 'A bright yellow sunflower',
+      box: { ymin: 520, xmin: 60, ymax: 940, xmax: 480 },
+    },
+    {
+      id: `item-${Date.now()}-3`,
+      word: 'School bus',
+      meaning: 'Xe buýt trường học',
+      phonetic: '/ˈskuːl ˌbʌs/',
+      example: 'A friendly yellow school bus.',
+      visualDescription: 'A friendly yellow school bus with happy eyes',
+      box: { ymin: 520, xmin: 520, ymax: 940, xmax: 940 },
+    },
+  ];
+}

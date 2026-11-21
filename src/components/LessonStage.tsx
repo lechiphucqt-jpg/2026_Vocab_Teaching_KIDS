@@ -13,6 +13,7 @@ import {
   Mic,
   Gamepad2,
   Sparkles,
+  X,
 } from 'lucide-react';
 import type { BrandSettings, LessonDeck, NavTab, VocabCard } from '../types/edtech';
 import { playClassroomSfx, speakVocabulary } from '../utils/mediaUtils';
@@ -76,6 +77,34 @@ export function LessonStage({
     setShowMeaning(false);
   }, [safeIndex, selectedDeckId]);
 
+  // Track browser fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const handleToggleBrowserFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  const handleExitPresentation = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    onTogglePresentationMode();
+  }, [onTogglePresentationMode]);
+
   const handleSpeakCard = useCallback(
     (card: VocabCard | undefined, speakSentence = false) => {
       if (!card) return;
@@ -135,13 +164,16 @@ export function LessonStage({
         }
       } else if (e.key.toLowerCase() === 'm' || e.key.toLowerCase() === 'v') {
         setShowMeaning((v) => !v);
+      } else if (e.key.toLowerCase() === 'f' && isPresentationMode) {
+        e.preventDefault();
+        handleToggleBrowserFullscreen();
       } else if (e.key === 'Escape' && isPresentationMode) {
-        onTogglePresentationMode();
+        handleExitPresentation();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentCard, handleNext, handlePrev, handleSpeakCard, handleImageClick, isPresentationMode, onTogglePresentationMode, showEnglishWord]);
+  }, [currentCard, handleNext, handlePrev, handleSpeakCard, handleImageClick, isPresentationMode, handleExitPresentation, handleToggleBrowserFullscreen, showEnglishWord]);
 
   // Auto-play slideshow timer
   useEffect(() => {
@@ -172,24 +204,35 @@ export function LessonStage({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* Separate button to reveal Vietnamese meaning */}
             <button
               type="button"
               onClick={() => setShowMeaning((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#86efac] bg-[#ecfdf5] hover:bg-[#dcfce7] text-sm font-bold text-[#15803d] transition-colors cursor-pointer"
+              className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl border border-[#86efac] bg-[#ecfdf5] hover:bg-[#dcfce7] text-xs sm:text-sm font-bold text-[#15803d] transition-colors cursor-pointer"
             >
               {showMeaning ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              {showMeaning ? 'Ẩn nghĩa Việt' : 'Click xem nghĩa tiếng Việt'}
+              <span>{showMeaning ? 'Ẩn nghĩa Việt' : 'Click xem nghĩa tiếng Việt'}</span>
+            </button>
+
+            {/* Dedicated Fullscreen Button in Presentation Mode */}
+            <button
+              type="button"
+              onClick={handleToggleBrowserFullscreen}
+              className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl border border-emerald-300 bg-white hover:bg-emerald-50 text-xs sm:text-sm font-bold text-[#15803d] transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
+              title={isFullscreen ? 'Thu nhỏ cửa sổ (Esc hoặc F)' : 'Bật toàn màn hình không viền (F)'}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4 text-emerald-700" /> : <Maximize2 className="w-4 h-4 text-emerald-700" />}
+              <span>{isFullscreen ? 'Thu nhỏ màn hình' : 'Toàn màn hình'}</span>
             </button>
 
             <button
               type="button"
-              onClick={onTogglePresentationMode}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition-colors whitespace-nowrap cursor-pointer"
+              onClick={handleExitPresentation}
+              className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-slate-900 text-white text-xs sm:text-sm font-medium hover:bg-slate-800 transition-colors whitespace-nowrap cursor-pointer"
             >
-              <Minimize2 className="w-4 h-4" />
-              Thoát trình chiếu
+              <X className="w-4 h-4" />
+              <span>Thoát trình chiếu</span>
             </button>
           </div>
         </div>
@@ -332,7 +375,7 @@ export function LessonStage({
                     Từ trước
                   </button>
                   <span className="text-xs text-slate-400 hidden sm:inline">
-                    Phím Space: Nghe · Mũi tên: Chuyển thẻ
+                    Phím Space: Nghe · Mũi tên: Chuyển thẻ · Phím F: Toàn màn hình · Esc: Thoát
                   </span>
                   <button
                     type="button"
@@ -369,11 +412,17 @@ export function LessonStage({
           {/* Presentation Fullscreen Button */}
           <button
             type="button"
-            onClick={onTogglePresentationMode}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            onClick={() => {
+              onTogglePresentationMode();
+              if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+              }
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+            title="Mở chế độ trình chiếu và tự động bật toàn màn hình"
           >
             <Maximize2 className="w-4 h-4" />
-            <span>Phóng to bài giảng</span>
+            <span>Chiếu toàn màn hình</span>
           </button>
 
           <div className="inline-flex items-center p-1 bg-slate-100 rounded-xl">

@@ -27,6 +27,10 @@ import {
   ImageIcon,
   Bot,
   CheckCircle2,
+  CheckSquare,
+  Layers,
+  Download,
+  Split,
 } from 'lucide-react';
 import {
   SAMPLE_TEXTBOOK_PAGE_URL,
@@ -47,6 +51,8 @@ import {
   generateIllustrationWithAI,
   generateExternalAIPrompts,
   AI_DRAWING_STYLES,
+  splitTextbookPageWithAI,
+  type DetectedTextbookItem,
 } from '../utils/geminiService';
 import { triggerCelebration } from '../utils/celebration';
 import { ResilientImage } from './ResilientImage';
@@ -71,6 +77,20 @@ interface CropRect {
   y: number;
   w: number;
   h: number;
+}
+
+export interface BatchSplitCardItem {
+  id: string;
+  word: string;
+  meaning: string;
+  phonetic: string;
+  example: string;
+  visualDescription: string;
+  cropBase64: string;
+  aiDrawnBase64?: string;
+  activeImage: 'crop' | 'ai';
+  isSelected: boolean;
+  isRedrawing?: boolean;
 }
 
 export function ContentStudio({
@@ -359,6 +379,13 @@ export function ContentStudio({
   const [isGeneratingExternalPrompts, setIsGeneratingExternalPrompts] = useState(false);
   const [copiedField, setCopiedField] = useState<'chatgpt' | 'canva' | null>(null);
 
+  // ---------------- AI BATCH TEXTBOOK SPLIT & REDRAW ----------------
+  const [isAiSplittingPage, setIsAiSplittingPage] = useState(false);
+  const [showBatchSplitModal, setShowBatchSplitModal] = useState(false);
+  const [batchSplitItems, setBatchSplitItems] = useState<BatchSplitCardItem[]>([]);
+  const [isBatchRedrawingAll, setIsBatchRedrawingAll] = useState(false);
+  const [batchDrawStyle, setBatchDrawStyle] = useState('cartoon');
+
   const pageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const loadedPageImgRef = useRef<HTMLImageElement | null>(null);
 
@@ -379,11 +406,23 @@ export function ContentStudio({
         const ry = r.y * canvas.height;
         const rw = r.w * canvas.width;
         const rh = r.h * canvas.height;
-        ctx.strokeStyle = 'rgba(2, 132, 199, 0.75)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#0284C7';
+        ctx.lineWidth = 2.5;
         ctx.setLineDash([6, 4]);
         ctx.strokeRect(rx, ry, rw, rh);
         ctx.setLineDash([]);
+
+        // Label tag on top of box
+        if (r.label) {
+          ctx.font = 'bold 11px sans-serif';
+          const textW = ctx.measureText(r.label).width;
+          const badgeW = Math.min(rw - 4, textW + 14);
+          ctx.fillStyle = '#0284C7';
+          ctx.fillRect(rx, ry, badgeW, 20);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(r.label, rx + 6, ry + 14);
+        }
+      });
       });
 
       // Draw active rubber-band selection
@@ -758,6 +797,241 @@ export function ContentStudio({
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // ---------------- AI SMART MULTI-IMAGE TEXTBOOK SPLITTER & BATCH RE-DRAWER ----------------
+  const getPageImageBase64 = (): string => {
+    if (textbookImageSrc.startsWith('data:image/')) return textbookImageSrc;
+    const img = loadedPageImgRef.current;
+    if (img && img.complete) {
+      try {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.naturalWidth || img.width;
+        tempCanvas.height = img.naturalHeight || img.height;
+        const ctx = tempCanvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          return tempCanvas.toDataURL('image/jpeg', 0.85);
+        }
+      } catch (err) {
+        console.warn('Canvas toDataURL failed:', err);
+      }
+    }
+    return textbookImageSrc;
+  };
+
+  const extractSubImageFromBox = (
+    img: HTMLImageElement,
+    box: { ymin: number; xmin: number; ymax: number; xmax: number }
+  ): string => {
+    const sx = Math.max(0, Math.round((box.xmin / 1000) * img.width));
+    const sy = Math.max(0, Math.round((box.ymin / 1000) * img.height));
+    const sw = Math.min(img.width - sx, Math.round(((box.xmax - box.xmin) / 1000) * img.width));
+    const sh = Math.min(img.height - sy, Math.round(((box.ymax - box.ymin) / 1000) * img.height));
+
+    const canvas = document.createElement('canvas');
+    const maxOut = 520;
+    const scale = Math.min(1, maxOut / Math.max(sw, sh));
+    canvas.width = Math.max(1, Math.round(sw * scale));
+    canvas.height = Math.max(1, Math.round(sh * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.86);
+  };
+
+  const handleAiAutoSplitTextbookPage = async () => {
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+      return;
+    }
+
+    const img = loadedPageImgRef.current;
+    if (!img) {
+      showToast('Chưa tải được trang sách. Vui lòng chờ ảnh hiển thị hoặc dán lại.');
+      return;
+    }
+
+    setIsAiSplittingPage(true);
+    showToast('AI đang quét và bóc tách các ô tranh trên trang sách...');
+
+    try {
+      const pageBase64 = getPageImageBase64();
+      const detectedItems = await splitTextbookPageWithAI(pageBase64);
+
+      if (detectedItems.length === 0) {
+        showToast('Không phát hiện được ô tranh nào. Thầy cô có thể kéo chuột thủ công để cắt.');
+        setIsAiSplittingPage(false);
+        return;
+      }
+
+      // Extract sub-images and create batch items
+      const newBatchItems: BatchSplitCardItem[] = detectedItems.map((item, idx) => {
+        const cropBase64 = extractSubImageFromBox(img, item.box);
+        return {
+          id: `split-${Date.now()}-${idx}`,
+          word: item.word,
+          meaning: item.meaning,
+          phonetic: item.phonetic || `/${item.word.toLowerCase()}/`,
+          example: item.example,
+          visualDescription: item.visualDescription,
+          cropBase64,
+          activeImage: 'crop',
+          isSelected: true,
+        };
+      });
+
+      setBatchSplitItems(newBatchItems);
+
+      // Also map to canvas regions
+      const regions: SampleTextbookRegion[] = detectedItems.map((item, idx) => ({
+        id: item.id,
+        label: `${idx + 1}. ${item.word}`,
+        word: item.word,
+        phonetic: item.phonetic,
+        meaning: item.meaning,
+        example: item.example,
+        x: item.box.xmin / 1000,
+        y: item.box.ymin / 1000,
+        w: (item.box.xmax - item.box.xmin) / 1000,
+        h: (item.box.ymax - item.box.ymin) / 1000,
+      }));
+
+      setDetectedRegions(regions);
+
+      // Select first region for immediate preview on right sidebar as well
+      if (regions[0]) {
+        handleSelectRegion(regions[0]);
+      }
+
+      setShowBatchSplitModal(true);
+      triggerCelebration();
+      showToast(`✨ Đã nhận diện & tách thành công ${newBatchItems.length} ô tranh từ trang sách!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Lỗi tách ảnh: ${msg}`);
+    } finally {
+      setIsAiSplittingPage(false);
+    }
+  };
+
+  const handleBatchRedrawAll = async () => {
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
+      return;
+    }
+
+    setIsBatchRedrawingAll(true);
+    showToast('AI đang vẽ lại hình ảnh cho tất cả các thẻ...');
+
+    try {
+      const updated = [...batchSplitItems];
+      for (let i = 0; i < updated.length; i++) {
+        const item = updated[i];
+        if (!item.isSelected) continue;
+
+        updated[i] = { ...updated[i], isRedrawing: true };
+        setBatchSplitItems([...updated]);
+
+        try {
+          const prompt = `${item.word} (${item.meaning}). ${item.visualDescription}`;
+          const res = await generateIllustrationWithAI({
+            prompt,
+            style: batchDrawStyle,
+            sourceImageBase64: item.cropBase64,
+            engine: 'smart-auto',
+          });
+          updated[i] = {
+            ...updated[i],
+            aiDrawnBase64: res.imageDataUrl,
+            activeImage: 'ai',
+            isRedrawing: false,
+          };
+        } catch (e) {
+          console.warn(`Lỗi vẽ lại mục ${item.word}:`, e);
+          updated[i] = { ...updated[i], isRedrawing: false };
+        }
+        setBatchSplitItems([...updated]);
+      }
+
+      triggerCelebration();
+      showToast('✨ Đã vẽ lại toàn bộ tranh minh họa bằng AI!');
+    } finally {
+      setIsBatchRedrawingAll(false);
+    }
+  };
+
+  const handleBatchRedrawSingle = async (idx: number) => {
+    const item = batchSplitItems[idx];
+    if (!item) return;
+
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      showToast('Chưa cấu hình API Key.');
+      return;
+    }
+
+    const updated = [...batchSplitItems];
+    updated[idx] = { ...updated[idx], isRedrawing: true };
+    setBatchSplitItems([...updated]);
+
+    try {
+      const prompt = `${item.word} (${item.meaning}). ${item.visualDescription}`;
+      const res = await generateIllustrationWithAI({
+        prompt,
+        style: batchDrawStyle,
+        sourceImageBase64: item.cropBase64,
+        engine: 'smart-auto',
+      });
+      updated[idx] = {
+        ...updated[idx],
+        aiDrawnBase64: res.imageDataUrl,
+        activeImage: 'ai',
+        isRedrawing: false,
+      };
+      setBatchSplitItems([...updated]);
+      showToast(`✨ Đã vẽ lại hình cho "${item.word}"!`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast(`Lỗi vẽ lại: ${msg}`);
+      updated[idx] = { ...updated[idx], isRedrawing: false };
+      setBatchSplitItems([...updated]);
+    }
+  };
+
+  const handleSaveAllBatchCards = async () => {
+    const selected = batchSplitItems.filter((i) => i.isSelected);
+    if (selected.length === 0) {
+      showToast('Chưa chọn thẻ nào để lưu.');
+      return;
+    }
+
+    for (let i = 0; i < selected.length; i++) {
+      const item = selected[i];
+      const finalImage =
+        item.activeImage === 'ai' && item.aiDrawnBase64 ? item.aiDrawnBase64 : item.cropBase64;
+
+      const newCard: VocabCard = {
+        id: `card-split-${Date.now()}-${i}`,
+        deckId: selectedDeckId,
+        word: item.word.trim(),
+        phonetic: item.phonetic.trim() || `/${item.word.trim().toLowerCase()}/`,
+        meaning: item.meaning.trim(),
+        example: item.example.trim(),
+        imageDataUrl: finalImage,
+        order: deckCards.length + i,
+        bestStars: 0,
+        createdAt: Date.now() + i,
+      };
+
+      await onSaveCard(newCard);
+    }
+
+    setShowBatchSplitModal(false);
+    triggerCelebration();
+    showToast(`🎉 Đã tự động tách và lưu thành công ${selected.length} thẻ từ vựng vào bài học!`);
   };
 
   const handleSaveCroppedCard = async (e: React.FormEvent) => {
@@ -1302,19 +1576,41 @@ export function ContentStudio({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {/* AI Multi-Image Auto-Split & Batch Redraw Button */}
+                <button
+                  type="button"
+                  onClick={handleAiAutoSplitTextbookPage}
+                  disabled={isAiSplittingPage}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all disabled:opacity-50"
+                  title="AI tự động nhận diện tất cả các hình vẽ trên trang sách, vẽ lại và tự động tách thành các ảnh riêng biệt"
+                >
+                  {isAiSplittingPage ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-purple-200" />
+                      <span>Đang quét & tách ảnh...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-purple-200" />
+                      <span>✨ AI Tự tách ảnh & Vẽ lại</span>
+                    </>
+                  )}
+                </button>
+
                 <button
                   type="button"
                   onClick={handleRunSmartScan}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0284C7] text-white text-xs font-semibold hover:bg-[#0369A1] whitespace-nowrap shadow-xs cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#0284C7] text-white text-xs font-semibold hover:bg-[#0369A1] whitespace-nowrap shadow-xs cursor-pointer"
+                  title="Chia khung lưới mẫu nhanh 4 ô"
                 >
                   <ScanSearch className="w-4 h-4" />
-                  Tự động nhận diện khung ảnh
+                  Chia khung lưới
                 </button>
 
                 <button
                   type="button"
                   onClick={handlePasteFromClipboard}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-emerald-400 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-emerald-400 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
                   title="Dán ảnh chụp màn hình từ Clipboard (Win + Shift + S rồi bấm vào đây hoặc ấn Ctrl + V)"
                 >
                   <Clipboard className="w-3.5 h-3.5 text-emerald-600" />
@@ -1387,8 +1683,20 @@ export function ContentStudio({
             {/* Detected Quick-Select Boxes */}
             {detectedRegions.length > 0 && (
               <div className="space-y-2 pt-1">
-                <div className="text-xs font-semibold text-slate-700">
-                  Khung tranh đã phát hiện trên trang (nhấn để cắt nhanh):
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-semibold text-slate-700">
+                    Khung tranh đã nhận diện trên trang (nhấn để xem thẻ):
+                  </div>
+                  {batchSplitItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBatchSplitModal(true)}
+                      className="text-xs font-bold text-purple-700 hover:text-purple-900 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Split className="w-3.5 h-3.5" />
+                      Mở bảng tách ảnh ({batchSplitItems.length})
+                    </button>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {detectedRegions.map((reg) => (
@@ -1396,7 +1704,7 @@ export function ContentStudio({
                       key={reg.id}
                       type="button"
                       onClick={() => handleSelectRegion(reg)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:border-[#0284C7] hover:bg-[#0284C7]/6 text-xs font-medium text-slate-800 transition-colors whitespace-nowrap"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:border-[#0284C7] hover:bg-[#0284C7]/6 text-xs font-medium text-slate-800 transition-colors whitespace-nowrap cursor-pointer"
                     >
                       <Crop className="w-3.5 h-3.5 text-[#0284C7]" />
                       {reg.label}
@@ -2004,6 +2312,275 @@ export function ContentStudio({
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI MULTI-IMAGE TEXTBOOK AUTO-SPLIT & BATCH MODAL */}
+      {showBatchSplitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-purple-700 via-indigo-700 to-emerald-700 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-white/15 backdrop-blur-xs">
+                  <Split className="w-5 h-5 text-purple-100" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base flex items-center gap-2">
+                    Tự Động Tách Ảnh & Nhận Diện Trang Sách Bằng AI
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] bg-white/20 text-white font-medium">
+                      Tìm thấy {batchSplitItems.length} ô tranh
+                    </span>
+                  </h3>
+                  <p className="text-xs text-purple-100">
+                    AI đã tách thành các ảnh riêng biệt kèm từ vựng. Thầy cô có thể giữ ảnh gốc hoặc dùng AI vẽ lại toàn bộ!
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBatchSplitModal(false)}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Sub-bar Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 bg-slate-50 border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allSelected = batchSplitItems.every((i) => i.isSelected);
+                    setBatchSplitItems((prev) =>
+                      prev.map((item) => ({ ...item, isSelected: !allSelected }))
+                    );
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 cursor-pointer select-none"
+                >
+                  {batchSplitItems.every((i) => i.isSelected) ? (
+                    <CheckSquare className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <Square className="w-4 h-4 text-slate-400" />
+                  )}
+                  <span>Chọn tất cả ({batchSplitItems.filter((i) => i.isSelected).length}/{batchSplitItems.length})</span>
+                </button>
+
+                <div className="h-4 w-px bg-slate-300" />
+
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <span>Phong cách vẽ AI:</span>
+                  <select
+                    value={batchDrawStyle}
+                    onChange={(e) => setBatchDrawStyle(e.target.value)}
+                    className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-800 outline-none cursor-pointer"
+                  >
+                    {AI_DRAWING_STYLES.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Master Redraw Button */}
+              <button
+                type="button"
+                onClick={handleBatchRedrawAll}
+                disabled={isBatchRedrawingAll}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isBatchRedrawingAll ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>AI đang vẽ lại tất cả...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-purple-200" />
+                    <span>✨ AI Vẽ lại toàn bộ tranh ({batchSplitItems.length} hình)</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Grid of Separated Items */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1 bg-slate-100/50">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+                {batchSplitItems.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className={`bg-white rounded-xl border p-4 transition-all shadow-xs space-y-3 ${
+                      item.isSelected ? 'border-emerald-400 ring-2 ring-emerald-500/10' : 'border-slate-200 opacity-60'
+                    }`}
+                  >
+                    {/* Item Top Bar */}
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={item.isSelected}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setBatchSplitItems((prev) =>
+                              prev.map((it, i) => (i === idx ? { ...it, isSelected: checked } : it))
+                            );
+                          }}
+                          className="w-4 h-4 rounded text-emerald-600 border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                        />
+                        <span className="font-bold text-xs text-slate-800">
+                          Thẻ #{idx + 1}: <span className="text-[#15803d]">{item.word}</span>
+                        </span>
+                      </label>
+
+                      {/* Image Source Mode Toggle */}
+                      <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBatchSplitItems((prev) =>
+                              prev.map((it, i) => (i === idx ? { ...it, activeImage: 'crop' } : it))
+                            );
+                          }}
+                          className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                            item.activeImage === 'crop'
+                              ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Ảnh cắt từ sách
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!item.aiDrawnBase64) {
+                              handleBatchRedrawSingle(idx);
+                            } else {
+                              setBatchSplitItems((prev) =>
+                                prev.map((it, i) => (i === idx ? { ...it, activeImage: 'ai' } : it))
+                              );
+                            }
+                          }}
+                          className={`px-2.5 py-1 rounded-md font-medium transition-colors flex items-center gap-1 cursor-pointer ${
+                            item.activeImage === 'ai'
+                              ? 'bg-purple-600 text-white shadow-2xs font-bold'
+                              : 'text-purple-700 hover:text-purple-900'
+                          }`}
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          {item.aiDrawnBase64 ? 'Ảnh AI vẽ lại' : 'Vẽ lại bằng AI'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Image Preview & Info Grid */}
+                    <div className="grid grid-cols-12 gap-3 items-start">
+                      {/* Left: Image Container */}
+                      <div className="col-span-5 relative aspect-square rounded-lg overflow-hidden bg-slate-50 border border-slate-200 flex items-center justify-center">
+                        <img
+                          src={
+                            item.activeImage === 'ai' && item.aiDrawnBase64
+                              ? item.aiDrawnBase64
+                              : item.cropBase64
+                          }
+                          alt={item.word}
+                          className="w-full h-full object-contain bg-white"
+                        />
+                        {item.isRedrawing && (
+                          <div className="absolute inset-0 bg-white/90 backdrop-blur-xs flex flex-col items-center justify-center p-2 text-center z-10">
+                            <Loader2 className="w-5 h-5 text-purple-600 animate-spin mb-1" />
+                            <span className="text-[10px] font-bold text-purple-800">Đang vẽ...</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right: Editable Fields */}
+                      <div className="col-span-7 space-y-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">
+                            Từ tiếng Anh
+                          </label>
+                          <input
+                            type="text"
+                            value={item.word}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setBatchSplitItems((prev) =>
+                                prev.map((it, i) => (i === idx ? { ...it, word: v } : it))
+                              );
+                            }}
+                            className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs font-bold text-slate-900"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">
+                            Nghĩa tiếng Việt
+                          </label>
+                          <input
+                            type="text"
+                            value={item.meaning}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setBatchSplitItems((prev) =>
+                                prev.map((it, i) => (i === idx ? { ...it, meaning: v } : it))
+                              );
+                            }}
+                            className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-900"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[11px] font-mono text-[#0284C7] truncate">
+                            {item.phonetic}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleBatchRedrawSingle(idx)}
+                            disabled={item.isRedrawing}
+                            className="text-[11px] font-semibold text-purple-700 hover:text-purple-900 hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            {item.aiDrawnBase64 ? 'Vẽ lại khác' : 'Tạo nét vẽ AI'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3.5 bg-white border-t border-slate-200 flex items-center justify-between shrink-0">
+              <span className="text-xs text-slate-500">
+                Sẽ nạp vào chủ đề: <strong>{decks.find((d) => d.id === selectedDeckId)?.title || 'Chủ đề hiện tại'}</strong>
+              </span>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchSplitModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAllBatchCards}
+                  disabled={batchSplitItems.filter((i) => i.isSelected).length === 0}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>
+                    Nạp tất cả {batchSplitItems.filter((i) => i.isSelected).length} thẻ vào bài học
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
