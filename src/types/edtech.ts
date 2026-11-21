@@ -58,6 +58,9 @@ export interface BrandSettings {
   voiceAccent: 'en-US' | 'en-GB';
   teamAName: string;
   teamBName: string;
+  teamAAvatar?: string;
+  teamBAvatar?: string;
+  showVietnameseInGames?: boolean;
   soundEffectsEnabled: boolean;
   activeAIModel?: AIModelId;
 }

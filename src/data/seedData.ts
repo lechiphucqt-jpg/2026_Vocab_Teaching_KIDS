@@ -77,6 +77,9 @@ export const DEFAULT_BRAND_SETTINGS: BrandSettings = {
   voiceAccent: 'en-US',
   teamAName: 'Đội Xanh',
   teamBName: 'Đội Cam',
+  teamAAvatar: '🦁',
+  teamBAvatar: '🐯',
+  showVietnameseInGames: true,
   soundEffectsEnabled: true,
 };
 
