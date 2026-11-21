@@ -31,6 +31,7 @@ import {
   Layers,
   Download,
   Split,
+  Zap,
 } from 'lucide-react';
 import {
   SAMPLE_TEXTBOOK_PAGE_URL,
@@ -2096,23 +2097,23 @@ export function ContentStudio({
             </div>
 
             {/* Modal Tabs */}
-            <div className="flex border-b border-slate-200 bg-slate-50 px-6 shrink-0 overflow-x-auto">
+            <div className="flex border-b border-slate-200 bg-slate-50 px-3 sm:px-6 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <button
                 type="button"
                 onClick={() => setAiDrawModalTab('gemini')}
-                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                className={`py-3 px-3 sm:px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                   aiDrawModalTab === 'gemini'
                     ? 'border-purple-600 text-purple-700 bg-white'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Wand2 className="w-3.5 h-3.5" />
+                <Wand2 className="w-3.5 h-3.5 text-purple-600" />
                 ✨ Vẽ trực tiếp bằng AI (Gemini · Imagen)
               </button>
               <button
                 type="button"
                 onClick={() => setAiDrawModalTab('chatgpt')}
-                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                className={`py-3 px-3 sm:px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                   aiDrawModalTab === 'chatgpt'
                     ? 'border-emerald-600 text-emerald-800 bg-white ring-1 ring-emerald-500/10'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -2124,7 +2125,7 @@ export function ContentStudio({
               <button
                 type="button"
                 onClick={() => setAiDrawModalTab('external')}
-                className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                className={`py-3 px-3 sm:px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                   aiDrawModalTab === 'external'
                     ? 'border-indigo-600 text-indigo-700 bg-white'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
