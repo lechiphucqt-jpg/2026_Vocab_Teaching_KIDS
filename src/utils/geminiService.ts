@@ -430,7 +430,7 @@ export async function generateIllustrationWithAI(params: {
   let recognized: RecognizedCroppedObject | undefined;
 
   // Step 1: If there is a source image and prompt is empty or short, analyze source image first!
-  if (params.sourceImageBase64) {
+  if (params.sourceImageBase64 && (!targetPrompt || targetPrompt.length < 15)) {
     try {
       recognized = await analyzeCroppedImageWithAI(params.sourceImageBase64);
       if (!targetPrompt) {
@@ -572,23 +572,24 @@ export async function splitTextbookPageWithAI(
     rawBase64 = match[2];
   }
 
-  const prompt = `Bạn là chuyên gia thị giác máy tính và biên tập sách giáo khoa tiếng Anh thiếu nhi.
-Đây là hình ảnh một trang sách giáo khoa tiếng Anh có chứa nhiều khung hình minh họa từ vựng độc lập (ví dụ trang sách có 2, 3, 4, 6 hoặc 8 ô tranh từ vựng).
+  const prompt = `Bạn là chuyên gia thị giác máy tính và biên tập sách giáo khoa tiếng Anh thiếu nhi (Cambridge Young Learners).
+Hình ảnh này chứa MỘT TRANG SÁCH hoặc MỘT VÙNG HỌC LIỆU có NHIỀU CON VẬT, ĐỒ VẬT HOẶC TRANH MINH HỌA TỪ VỰNG KHÁC NHAU (ví dụ: từng con vật như Ốc sên / Snail, Chuột túi / Kangaroo, Con gấu / Bear, Đàn vịt / Duck, Lạc đà / Camel, Con nhện / Spider, Hươu cao cổ / Giraffe, Tê giác / Rhinoceros, Hà mã / Hippopotamus, Chim cánh cụt / Penguin, Khủng long / Dinosaur, Con ong / Bee...).
 
-Hãy nhận diện và tách toàn bộ các ô tranh/vật thể từ vựng riêng biệt trên trang sách này.
-Với MỖI ô tranh tìm thấy, hãy xác định:
-1. "word": Từ vựng tiếng Anh mục tiêu tương ứng trong ô tranh (ví dụ: "Bicycle", "Umbrella", "Sunflower", "School bus").
-2. "meaning": Nghĩa tiếng Việt chuẩn mực, ngắn gọn cho học sinh (ví dụ: "Xe đạp", "Cây dù / Cái ô", "Hoa hướng dương", "Xe buýt trường học").
-3. "phonetic": Phiên âm IPA chuẩn xác (ví dụ: "/ˈbaɪ.sɪ.kəl/").
-4. "example": Câu ví dụ tiếng Anh đơn giản (dưới 7 từ).
-5. "visualDescription": Mô tả trực quan chi tiết hình vẽ bằng tiếng Anh để họa sĩ AI vẽ lại một tranh minh họa mới đẹp mắt (không chữ).
-6. "box": Tọa độ khung chữ nhật bao quanh chính xác ô tranh đó trên trang sách, theo hệ tọa độ chuẩn hóa từ 0 đến 1000:
-   - "ymin": tọa độ mép trên (0 - 1000)
-   - "xmin": tọa độ mép trái (0 - 1000)
-   - "ymax": tọa độ mép dưới (0 - 1000)
-   - "xmax": tọa độ mép phải (0 - 1000)
+QUY TẮC BẮT BUỘC:
+1. KHÔNG ĐƯỢC gộp chung các con vật/đồ vật thành một từ tổng quát (như "Animals", "Zoo", "Nature", "Objects").
+2. BẮT BUỘC nhận diện và bóc tách TỪNG CON VẬT / ĐỒ VẬT RIÊNG LẺ thành các mục độc lập. Kể cả khi chúng không có viền ô vuông (vẽ tự do trên nền), bạn phải tạo khung chữ nhật (box) bao quanh vừa vặn từng con vật/đồ vật đó!
+3. Nếu trên trang có 12 con vật thì BẮT BUỘC trả về đủ 12 mục! (Hoặc có bao nhiêu hình thì trả về bấy nhiêu mục từ 1 đến 20 mục).
 
-Hãy trả về DUY NHẤT một mảng JSON Array các object theo định dạng sau (không thêm văn bản ngoài):
+Với MỖI con vật/đồ vật:
+- "word": Từ vựng tiếng Anh đơn lẻ của con vật/đồ vật đó (viết hoa chữ cái đầu, ví dụ: "Snail", "Kangaroo", "Bear", "Duck", "Camel", "Spider", "Giraffe", "Rhinoceros", "Hippopotamus", "Penguin", "Dinosaur", "Bee").
+- "meaning": Nghĩa tiếng Việt chuẩn mực, gần gũi cho bé (ví dụ: "Ốc sên", "Chuột túi", "Con gấu", "Con vịt", "Lạc đà", "Con nhện", "Hươu cao cổ", "Tê giác", "Hà mã", "Chim cánh cụt", "Khủng long", "Con ong").
+- "phonetic": Phiên âm quốc tế IPA chuẩn xác.
+- "example": Câu ví dụ tiếng Anh cực đơn giản (dưới 7 từ).
+- "visualDescription": Mô tả trực quan con vật/vật thể này bằng tiếng Anh để họa sĩ AI vẽ lại một bức tranh minh họa độc lập riêng lẻ (không chứa chữ).
+- "box": Tọa độ chuẩn hóa từ 0 đến 1000 bao quanh vừa khít con vật/vật thể đó:
+  { "ymin": 0-1000, "xmin": 0-1000, "ymax": 0-1000, "xmax": 0-1000 }
+
+Hãy trả về DUY NHẤT một mảng JSON Array các object (không kèm markdown ngoài):
 [
   {
     "word": "...",
@@ -596,12 +597,7 @@ Hãy trả về DUY NHẤT một mảng JSON Array các object theo định dạ
     "phonetic": "...",
     "example": "...",
     "visualDescription": "...",
-    "box": {
-      "ymin": 60,
-      "xmin": 60,
-      "ymax": 480,
-      "xmax": 480
-    }
+    "box": { "ymin": 50, "xmin": 60, "ymax": 320, "xmax": 260 }
   }
 ]`;
 

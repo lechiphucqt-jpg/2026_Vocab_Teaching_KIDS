@@ -823,10 +823,16 @@ export function ContentStudio({
     img: HTMLImageElement,
     box: { ymin: number; xmin: number; ymax: number; xmax: number }
   ): string => {
-    const sx = Math.max(0, Math.round((box.xmin / 1000) * img.width));
-    const sy = Math.max(0, Math.round((box.ymin / 1000) * img.height));
-    const sw = Math.min(img.width - sx, Math.round(((box.xmax - box.xmin) / 1000) * img.width));
-    const sh = Math.min(img.height - sy, Math.round(((box.ymax - box.ymin) / 1000) * img.height));
+    const imgW = img.naturalWidth || img.width;
+    const imgH = img.naturalHeight || img.height;
+    if (!imgW || !imgH) return '';
+
+    const sx = Math.max(0, Math.round((box.xmin / 1000) * imgW));
+    const sy = Math.max(0, Math.round((box.ymin / 1000) * imgH));
+    const sw = Math.min(imgW - sx, Math.round(((box.xmax - box.xmin) / 1000) * imgW));
+    const sh = Math.min(imgH - sy, Math.round(((box.ymax - box.ymin) / 1000) * imgH));
+
+    if (sw <= 5 || sh <= 5) return '';
 
     const canvas = document.createElement('canvas');
     const maxOut = 520;
@@ -839,7 +845,7 @@ export function ContentStudio({
     return canvas.toDataURL('image/jpeg', 0.86);
   };
 
-  const handleAiAutoSplitTextbookPage = async () => {
+  const handleAiAutoSplitTextbookPage = async (sourceBase64Override?: string) => {
     const apiKey = getStoredApiKey();
     if (!apiKey) {
       showToast('Chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt API Key" trên thanh điều hướng.');
@@ -853,21 +859,33 @@ export function ContentStudio({
     }
 
     setIsAiSplittingPage(true);
-    showToast('AI đang quét và bóc tách các ô tranh trên trang sách...');
+    showToast('AI đang quét và bóc tách từng con vật / đối tượng riêng biệt...');
 
     try {
-      const pageBase64 = getPageImageBase64();
-      const detectedItems = await splitTextbookPageWithAI(pageBase64);
+      const targetBase64 = sourceBase64Override || getPageImageBase64();
+      const detectedItems = await splitTextbookPageWithAI(targetBase64);
 
       if (detectedItems.length === 0) {
-        showToast('Không phát hiện được ô tranh nào. Thầy cô có thể kéo chuột thủ công để cắt.');
+        showToast('Không phát hiện được đối tượng nào. Thầy cô có thể kéo chuột thủ công để cắt.');
         setIsAiSplittingPage(false);
         return;
       }
 
+      // If sourceBase64Override was used, load that image element to crop from it
+      let targetImg: HTMLImageElement = img;
+      if (sourceBase64Override) {
+        targetImg = await new Promise((resolve, reject) => {
+          const tempImg = new Image();
+          tempImg.crossOrigin = 'anonymous';
+          tempImg.onload = () => resolve(tempImg);
+          tempImg.onerror = reject;
+          tempImg.src = sourceBase64Override;
+        });
+      }
+
       // Extract sub-images and create batch items
       const newBatchItems: BatchSplitCardItem[] = detectedItems.map((item, idx) => {
-        const cropBase64 = extractSubImageFromBox(img, item.box);
+        const cropBase64 = extractSubImageFromBox(targetImg, item.box);
         return {
           id: `split-${Date.now()}-${idx}`,
           word: item.word,
@@ -883,30 +901,40 @@ export function ContentStudio({
 
       setBatchSplitItems(newBatchItems);
 
-      // Also map to canvas regions
-      const regions: SampleTextbookRegion[] = detectedItems.map((item, idx) => ({
-        id: item.id,
-        label: `${idx + 1}. ${item.word}`,
-        word: item.word,
-        phonetic: item.phonetic,
-        meaning: item.meaning,
-        example: item.example,
-        x: item.box.xmin / 1000,
-        y: item.box.ymin / 1000,
-        w: (item.box.xmax - item.box.xmin) / 1000,
-        h: (item.box.ymax - item.box.ymin) / 1000,
-      }));
+      // If splitting the main page, also map to canvas regions
+      if (!sourceBase64Override) {
+        const regions: SampleTextbookRegion[] = detectedItems.map((item, idx) => ({
+          id: item.id,
+          label: `${idx + 1}. ${item.word}`,
+          word: item.word,
+          phonetic: item.phonetic,
+          meaning: item.meaning,
+          example: item.example,
+          x: item.box.xmin / 1000,
+          y: item.box.ymin / 1000,
+          w: (item.box.xmax - item.box.xmin) / 1000,
+          h: (item.box.ymax - item.box.ymin) / 1000,
+        }));
 
-      setDetectedRegions(regions);
+        setDetectedRegions(regions);
 
-      // Select first region for immediate preview on right sidebar as well
-      if (regions[0]) {
-        handleSelectRegion(regions[0]);
+        // Select first region for immediate preview on right sidebar as well
+        if (regions[0]) {
+          handleSelectRegion(regions[0]);
+        }
+      } else {
+        if (newBatchItems[0]) {
+          setCroppedPreviewBase64(newBatchItems[0].cropBase64);
+          setCropWord(newBatchItems[0].word);
+          setCropMeaning(newBatchItems[0].meaning);
+          setCropPhonetic(newBatchItems[0].phonetic);
+          setCropExample(newBatchItems[0].example);
+        }
       }
 
       setShowBatchSplitModal(true);
       triggerCelebration();
-      showToast(`✨ Đã nhận diện & tách thành công ${newBatchItems.length} ô tranh từ trang sách!`);
+      showToast(`✨ Đã nhận diện & tách thành công ${newBatchItems.length} hình ảnh riêng biệt!`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast(`Lỗi tách ảnh: ${msg}`);
@@ -1752,35 +1780,57 @@ export function ContentStudio({
               )}
             </div>
 
-            {/* AI Redraw & Custom Drawing Action Buttons */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* AI Action Buttons */}
+            <div className="space-y-2">
               <button
                 type="button"
-                onClick={handleAiRedrawCroppedImage}
-                disabled={!croppedPreviewBase64 || isAiRedrawing}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-semibold hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
-                title="AI tự động nhận diện vật thể trong ảnh sách và vẽ lại thành hình minh họa vector/3D đẹp mắt"
+                onClick={() => handleAiAutoSplitTextbookPage(croppedPreviewBase64 || undefined)}
+                disabled={isAiSplittingPage}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                title="Nếu trang sách hoặc ảnh này có nhiều con vật/đồ vật, AI sẽ tự động tách thành từng ảnh riêng biệt và vẽ lại từng ảnh!"
               >
-                {isAiRedrawing ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {isAiSplittingPage ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-200" />
+                    <span>Đang tách ảnh & nhận diện từng con vật...</span>
+                  </>
                 ) : (
-                  <Wand2 className="w-3.5 h-3.5 text-purple-200" />
+                  <>
+                    <Split className="w-4 h-4 text-emerald-200" />
+                    <span>✨ Tách thành các ảnh riêng biệt & Vẽ lại</span>
+                  </>
                 )}
-                <span>✨ AI Vẽ lại hình này</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setAiCustomPrompt(cropWord ? `${cropWord} (${cropMeaning})` : '');
-                  setShowAiDrawModal(true);
-                }}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-purple-300 bg-purple-50 text-purple-800 text-xs font-semibold hover:bg-purple-100 hover:border-purple-400 transition-colors shadow-xs cursor-pointer"
-                title="Tự vẽ theo ý tưởng riêng hoặc lấy Prompt cho ChatGPT, Canva"
-              >
-                <Palette className="w-3.5 h-3.5 text-purple-600" />
-                <span>🎨 Tự vẽ theo ý tưởng</span>
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleAiRedrawCroppedImage}
+                  disabled={!croppedPreviewBase64 || isAiRedrawing}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-semibold hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
+                  title="AI tự động nhận diện vật thể trong ảnh sách và vẽ lại thành hình minh họa vector/3D đẹp mắt"
+                >
+                  {isAiRedrawing ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Wand2 className="w-3.5 h-3.5 text-purple-200" />
+                  )}
+                  <span>Vẽ lại hình này</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiCustomPrompt(cropWord ? `${cropWord} (${cropMeaning})` : '');
+                    setShowAiDrawModal(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-purple-300 bg-purple-50 text-purple-800 text-xs font-semibold hover:bg-purple-100 hover:border-purple-400 transition-colors shadow-xs cursor-pointer"
+                  title="Tự vẽ theo ý tưởng riêng hoặc lấy Prompt cho ChatGPT, Canva"
+                >
+                  <Palette className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Tự vẽ ý tưởng</span>
+                </button>
+              </div>
             </div>
 
             {croppedPreviewBase64 && (
