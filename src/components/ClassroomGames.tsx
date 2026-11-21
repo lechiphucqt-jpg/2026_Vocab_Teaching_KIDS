@@ -16,6 +16,12 @@ import {
   ChevronRight,
   Grid,
   SlidersHorizontal,
+  Maximize,
+  Minimize,
+  Rocket,
+  Zap,
+  RotateCw,
+  X,
 } from 'lucide-react';
 import type { BrandSettings, GameKind, LessonDeck, VocabCard } from '../types/edtech';
 import { playClassroomSfx, speakVocabulary } from '../utils/mediaUtils';
@@ -102,6 +108,29 @@ export function ClassroomGames({
   const [bannerText, setBannerText] = useState('Chào mừng các bé đến với Sân đấu trò chơi từ vựng!');
   const [isFinished, setIsFinished] = useState(false);
   const [gameMenuMode, setGameMenuMode] = useState<'slider' | 'grid'>('slider');
+
+  const gameContainerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      if (gameContainerRef.current?.requestFullscreen) {
+        gameContainerRef.current.requestFullscreen().catch(() => {});
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+  };
 
   const scrollNavRef = useRef<HTMLDivElement>(null);
 
@@ -228,6 +257,69 @@ export function ClassroomGames({
   const [memoryTiles, setMemoryTiles] = useState<MemoryTile[]>([]);
   const [flippedUids, setFlippedUids] = useState<string[]>([]);
   const [lockBoard, setLockBoard] = useState(false);
+
+  // ---------------- 15. QUIZLET LIVE - TEAM RACE ----------------
+  interface AnimalSquad {
+    id: string;
+    name: string;
+    avatar: string;
+    color: string;
+    barColor: string;
+    score: number;
+  }
+  const DEFAULT_SQUADS: AnimalSquad[] = useMemo(() => [
+    { id: 'lions', name: 'Lions', avatar: '🦁', color: '#8B5CF6', barColor: 'bg-purple-600', score: 0 },
+    { id: 'penguins', name: 'Penguins', avatar: '🐧', color: '#EAB308', barColor: 'bg-yellow-500', score: 0 },
+    { id: 'frogs', name: 'Frogs', avatar: '🐸', color: '#F97316', barColor: 'bg-orange-500', score: 0 },
+    { id: 'chameleons', name: 'Chameleons', avatar: '🦎', color: '#64748B', barColor: 'bg-slate-500', score: 0 },
+    { id: 'hedgehogs', name: 'Hedgehogs', avatar: '🦔', color: '#10B981', barColor: 'bg-emerald-600', score: 0 },
+    { id: 'orcas', name: 'Orcas', avatar: '🐋', color: '#EF4444', barColor: 'bg-red-500', score: 0 },
+    { id: 'oxen', name: 'Oxen', avatar: '🐂', color: '#0284C7', barColor: 'bg-sky-500', score: 0 },
+    { id: 'alligators', name: 'Alligators', avatar: '🐊', color: '#4F46E5', barColor: 'bg-indigo-600', score: 0 },
+  ], []);
+  const [teamRaceSquads, setTeamRaceSquads] = useState<AnimalSquad[]>(DEFAULT_SQUADS);
+  const [activeSquadIdx, setActiveSquadIdx] = useState(0);
+  const [teamRaceCurrentCard, setTeamRaceCurrentCard] = useState<VocabCard | null>(null);
+  const [teamRaceChoices, setTeamRaceChoices] = useState<VocabCard[]>([]);
+
+  // ---------------- 16. GIMKIT - ONE WAY OUT ----------------
+  const [gimkitEnergy, setGimkitEnergy] = useState(0);
+  const [gimkitKeys, setGimkitKeys] = useState(0);
+  const [gimkitRoomIndex, setGimkitRoomIndex] = useState(0);
+  const [gimkitShield, setGimkitShield] = useState(100);
+  const [gimkitCurrentCard, setGimkitCurrentCard] = useState<VocabCard | null>(null);
+  const [gimkitChoices, setGimkitChoices] = useState<VocabCard[]>([]);
+
+  // ---------------- 17. FLIPPITY - SURVEY SLAM / GAME SHOW ----------------
+  interface SurveyItem {
+    id: string;
+    points: number;
+    category: string;
+    card: VocabCard;
+    isRevealed: boolean;
+    awardedTo: TeamKey | null;
+  }
+  const [surveyItems, setSurveyItems] = useState<SurveyItem[]>([]);
+  const [activeSurveyItem, setActiveSurveyItem] = useState<SurveyItem | null>(null);
+  const [surveyStrikes, setSurveyStrikes] = useState(0);
+
+  // ---------------- 18. FLIPPITY - TILE PUZZLE ----------------
+  interface PuzzleTileItem {
+    id: string;
+    card: VocabCard;
+    rotation: number;
+    position: number;
+    solved: boolean;
+  }
+  const [puzzleTiles, setPuzzleTiles] = useState<PuzzleTileItem[]>([]);
+  const [selectedPuzzleIdx, setSelectedPuzzleIdx] = useState<number | null>(null);
+
+  // ---------------- 19. EDUCAPLAY - ASTERQUIZ ----------------
+  const [asterPosA, setAsterPosA] = useState(0);
+  const [asterPosB, setAsterPosB] = useState(0);
+  const [asterCurrentCard, setAsterCurrentCard] = useState<VocabCard | null>(null);
+  const [asterChoices, setAsterChoices] = useState<VocabCard[]>([]);
+  const [asterLaserActive, setAsterLaserActive] = useState<TeamKey | null>(null);
 
   const awardPoints = (team: TeamKey, pts: number) => {
     if (team === 'A') setScoreA((s) => s + pts);
@@ -434,8 +526,85 @@ export function ClassroomGames({
       setFlippedUids([]);
       setLockBoard(false);
       setBannerText(`Lượt của ${settings.teamAName}: Lật 1 thẻ hình và 1 thẻ chữ tiếng Anh khớp nhau.`);
+    } else if (gameKind === 'team-race') {
+      const resetSquads = DEFAULT_SQUADS.map((s) => ({ ...s, score: 0 }));
+      setTeamRaceSquads(resetSquads);
+      setActiveSquadIdx(0);
+      const shuffled = shuffleArray(poolCards);
+      const target = shuffled[0] || poolCards[0];
+      setTeamRaceCurrentCard(target);
+      if (target) {
+        setTeamRaceChoices(buildOptionsForCard(target, poolCards, 4));
+        speakVocabulary(target.word, {
+          audioDataUrl: target.audioDataUrl,
+          rate: settings.speechRate,
+          accent: settings.voiceAccent,
+        });
+      }
+      setBannerText(`Quizlet Live Race: Nhóm ${resetSquads[0].name} ${resetSquads[0].avatar} đang thi đấu! Nhóm nào chạm mốc 10 điểm trước sẽ vô địch!`);
+    } else if (gameKind === 'gimkit-escape') {
+      setGimkitEnergy(0);
+      setGimkitKeys(0);
+      setGimkitRoomIndex(0);
+      setGimkitShield(100);
+      const shuffled = shuffleArray(poolCards);
+      const target = shuffled[0] || poolCards[0];
+      setGimkitCurrentCard(target);
+      if (target) {
+        setGimkitChoices(buildOptionsForCard(target, poolCards, 4));
+      }
+      setBannerText('Gimkit One Way Out: Cả lớp cùng nạp năng lượng ⚡ và tìm 3 chìa khóa 🔑 mở cổng thoát hiểm cứu tàu!');
+    } else if (gameKind === 'survey-slam') {
+      setSurveyStrikes(0);
+      setActiveSurveyItem(null);
+      const shuffled = shuffleArray(poolCards);
+      const items: SurveyItem[] = [];
+      const POINTS = [100, 200, 300, 500];
+      for (let i = 0; i < Math.min(shuffled.length, 9); i++) {
+        const card = shuffled[i];
+        items.push({
+          id: `survey-${card.id}-${i}`,
+          points: POINTS[i % POINTS.length],
+          category: `Cột ${Math.floor(i / 3) + 1}`,
+          card,
+          isRevealed: false,
+          awardedTo: null,
+        });
+      }
+      setSurveyItems(items);
+      setBannerText(`Lượt của ${settings.teamAName}: Chọn ô điểm số trên bảng Game Show và lật mở câu trả lời!`);
+    } else if (gameKind === 'tile-puzzle') {
+      setSelectedPuzzleIdx(null);
+      const subset = shuffleArray(poolCards).slice(0, 4);
+      const ROTATIONS = [0, 90, 180, 270];
+      const pTiles: PuzzleTileItem[] = subset.map((c, i) => ({
+        id: `tile-${c.id}-${i}`,
+        card: c,
+        rotation: ROTATIONS[Math.floor(Math.random() * 3) + 1],
+        position: i,
+        solved: false,
+      }));
+      setPuzzleTiles(pTiles);
+      setBannerText(`Lượt của ${settings.teamAName}: Bấm nút xoay ⟳ để đưa các ô vuông về đúng hướng khớp từ vựng!`);
+    } else if (gameKind === 'aster-quiz') {
+      setAsterPosA(0);
+      setAsterPosB(0);
+      setAsterLaserActive(null);
+      const shuffled = shuffleArray(poolCards);
+      const target = shuffled[0] || poolCards[0];
+      setAsterCurrentCard(target);
+      if (target) {
+        setAsterChoices(buildOptionsForCard(target, poolCards, 3));
+        speakVocabulary(target.word, {
+          audioDataUrl: target.audioDataUrl,
+          rate: settings.speechRate,
+          accent: settings.voiceAccent,
+        });
+      }
+      setBannerText(`Lượt của ${settings.teamAName}: Nghe từ vựng và bắn thiên thạch để tàu không gian bứt phá về trạm!`);
     }
   }, [
+    DEFAULT_SQUADS,
     buildOptionsForCard,
     buildScrambleForCard,
     buildSentenceForCard,
@@ -1105,6 +1274,223 @@ export function ClassroomGames({
     }
   };
 
+  // ---------------- 15. QUIZLET LIVE HANDLER ----------------
+  const handleTeamRaceAnswer = (chosenCard: VocabCard) => {
+    if (!teamRaceCurrentCard || isFinished) return;
+    const currentSquad = teamRaceSquads[activeSquadIdx];
+    if (chosenCard.id === teamRaceCurrentCard.id) {
+      playClassroomSfx('star', settings.soundEffectsEnabled);
+      speakVocabulary(chosenCard.word, {
+        audioDataUrl: chosenCard.audioDataUrl,
+        rate: settings.speechRate,
+        accent: settings.voiceAccent,
+      });
+      const newScore = currentSquad.score + 1;
+      const updated = teamRaceSquads.map((s, idx) => (idx === activeSquadIdx ? { ...s, score: newScore } : s));
+      setTeamRaceSquads(updated);
+      awardPoints(activeTeam, 10);
+
+      if (newScore >= 10) {
+        setIsFinished(true);
+        triggerCelebration();
+        playClassroomSfx('victory', settings.soundEffectsEnabled);
+        setBannerText(`🏆 ĐỘI ${currentSquad.name.toUpperCase()} ${currentSquad.avatar} ĐÃ ĐẠT 10 ĐIỂM VÀ GIÀNH CHIẾN THẮNG CHUNG CUỘC!`);
+      } else {
+        const nextSquadIdx = (activeSquadIdx + 1) % teamRaceSquads.length;
+        setActiveSquadIdx(nextSquadIdx);
+        const shuffled = shuffleArray(poolCards);
+        const nextTarget = shuffled[0] || poolCards[0];
+        setTeamRaceCurrentCard(nextTarget);
+        if (nextTarget) {
+          setTeamRaceChoices(buildOptionsForCard(nextTarget, poolCards, 4));
+        }
+        setBannerText(`Chính xác! ${currentSquad.name} tiến thêm 1 bước (+10 điểm). Tiếp theo: ${updated[nextSquadIdx].name} ${updated[nextSquadIdx].avatar}!`);
+      }
+    } else {
+      playClassroomSfx('wrong', settings.soundEffectsEnabled);
+      const updated = teamRaceSquads.map((s, idx) => (idx === activeSquadIdx ? { ...s, score: Math.max(0, s.score - 1) } : s));
+      setTeamRaceSquads(updated);
+      const nextSquadIdx = (activeSquadIdx + 1) % teamRaceSquads.length;
+      setActiveSquadIdx(nextSquadIdx);
+      setBannerText(`Chưa đúng! ${currentSquad.name} bị chững lại. Lượt tiếp theo chuyển sang ${updated[nextSquadIdx].name}!`);
+    }
+  };
+
+  // ---------------- 16. GIMKIT HANDLER ----------------
+  const handleGimkitAnswer = (chosenCard: VocabCard) => {
+    if (!gimkitCurrentCard || isFinished) return;
+    if (chosenCard.id === gimkitCurrentCard.id) {
+      playClassroomSfx('match', settings.soundEffectsEnabled);
+      speakVocabulary(chosenCard.word, {
+        audioDataUrl: chosenCard.audioDataUrl,
+        rate: settings.speechRate,
+        accent: settings.voiceAccent,
+      });
+      awardPoints(activeTeam, 20);
+      const nextEnergy = gimkitEnergy + 25;
+      if (nextEnergy >= 100) {
+        const nextKeys = gimkitKeys + 1;
+        setGimkitKeys(nextKeys);
+        setGimkitEnergy(0);
+        if (nextKeys >= 3) {
+          setIsFinished(true);
+          triggerCelebration();
+          playClassroomSfx('victory', settings.soundEffectsEnabled);
+          setBannerText('🚀 CẢ LỚP ĐÃ MỞ KHÓA THÀNH CÔNG KHOANG THOÁT HIỂM ESCAPE POD VÀ THOÁT KHỎI TÀU VŨ TRỤ AN TOÀN!');
+          return;
+        } else {
+          setGimkitRoomIndex((r) => Math.min(3, r + 1));
+          setBannerText(`Năng lượng đạt 100%! Nhận được 1 Chìa khóa cứu hộ 🔑 (${nextKeys}/3 chìa)! Tiến vào khoang tiếp theo.`);
+        }
+      } else {
+        setGimkitEnergy(nextEnergy);
+        setBannerText(`Chính xác! Tàu nạp thêm +25% năng lượng ⚡ (Hiện tại: ${nextEnergy}%).`);
+      }
+      const shuffled = shuffleArray(poolCards);
+      const nextTarget = shuffled[0] || poolCards[0];
+      setGimkitCurrentCard(nextTarget);
+      if (nextTarget) {
+        setGimkitChoices(buildOptionsForCard(nextTarget, poolCards, 4));
+      }
+    } else {
+      playClassroomSfx('wrong', settings.soundEffectsEnabled);
+      setGimkitShield((s) => Math.max(20, s - 20));
+      const nextTeam: TeamKey = activeTeam === 'A' ? 'B' : 'A';
+      setActiveTeam(nextTeam);
+      setBannerText(`Cảnh báo! Sinh vật lạ tấn công, khiên chắn giảm 20%! Đổi lượt sang ${nextTeamName(nextTeam)}.`);
+    }
+  };
+
+  // ---------------- 17. SURVEY SLAM / GAME SHOW HANDLERS ----------------
+  const handleOpenSurveyItem = (item: SurveyItem) => {
+    if (item.isRevealed) return;
+    playClassroomSfx('flip', settings.soundEffectsEnabled);
+    setActiveSurveyItem(item);
+  };
+
+  const handleSurveyMarkResult = (isCorrect: boolean) => {
+    if (!activeSurveyItem) return;
+    if (isCorrect) {
+      playClassroomSfx('star', settings.soundEffectsEnabled);
+      speakVocabulary(activeSurveyItem.card.word, {
+        audioDataUrl: activeSurveyItem.card.audioDataUrl,
+        rate: settings.speechRate,
+        accent: settings.voiceAccent,
+      });
+      awardPoints(activeTeam, activeSurveyItem.points);
+      const updated = surveyItems.map((it) =>
+        it.id === activeSurveyItem.id ? { ...it, isRevealed: true, awardedTo: activeTeam } : it
+      );
+      setSurveyItems(updated);
+      setActiveSurveyItem(null);
+      const unrevealed = updated.filter((it) => !it.isRevealed);
+      if (unrevealed.length === 0) {
+        setIsFinished(true);
+        triggerCelebration();
+        playClassroomSfx('victory', settings.soundEffectsEnabled);
+        setBannerText('Hoan hô! Tất cả các ô trên bảng Game Show đã được giải mã!');
+      } else {
+        setBannerText(`Chính xác! +${activeSurveyItem.points} điểm cho ${nextTeamName(activeTeam)}. Tiếp tục chọn ô mới!`);
+      }
+    } else {
+      playClassroomSfx('wrong', settings.soundEffectsEnabled);
+      const nextStrikes = surveyStrikes + 1;
+      setSurveyStrikes(nextStrikes);
+      setActiveSurveyItem(null);
+      const nextTeam: TeamKey = activeTeam === 'A' ? 'B' : 'A';
+      setActiveTeam(nextTeam);
+      setBannerText(`❌ STRIKE! Câu trả lời chưa chính xác. Lượt chơi đổi sang ${nextTeamName(nextTeam)}!`);
+    }
+  };
+
+  // ---------------- 18. TILE PUZZLE HANDLERS ----------------
+  const handleRotatePuzzleTile = (idx: number) => {
+    playClassroomSfx('flip', settings.soundEffectsEnabled);
+    const updated = puzzleTiles.map((tile, i) => {
+      if (i === idx) {
+        const nextRot = (tile.rotation + 90) % 360;
+        return { ...tile, rotation: nextRot };
+      }
+      return tile;
+    });
+    setPuzzleTiles(updated);
+
+    const allAligned = updated.every((t) => t.rotation === 0);
+    if (allAligned) {
+      setIsFinished(true);
+      triggerCelebration();
+      playClassroomSfx('victory', settings.soundEffectsEnabled);
+      awardPoints(activeTeam, 30);
+      setBannerText(`Ghép mảnh hoàn hảo! Cả 4 ô vuông đã khớp đúng góc 0° (+30 điểm cho ${nextTeamName(activeTeam)})!`);
+    }
+  };
+
+  const handleSwapPuzzleTile = (idx: number) => {
+    if (selectedPuzzleIdx === null) {
+      setSelectedPuzzleIdx(idx);
+      playClassroomSfx('flip', settings.soundEffectsEnabled);
+    } else if (selectedPuzzleIdx === idx) {
+      setSelectedPuzzleIdx(null);
+    } else {
+      playClassroomSfx('match', settings.soundEffectsEnabled);
+      const updated = [...puzzleTiles];
+      const temp = updated[selectedPuzzleIdx];
+      updated[selectedPuzzleIdx] = updated[idx];
+      updated[idx] = temp;
+      setPuzzleTiles(updated);
+      setSelectedPuzzleIdx(null);
+      setBannerText('Đã hoán đổi vị trí 2 mảnh ghép!');
+    }
+  };
+
+  // ---------------- 19. ASTERQUIZ HANDLER ----------------
+  const handleAsterQuizAnswer = (chosenCard: VocabCard) => {
+    if (!asterCurrentCard || isFinished) return;
+    if (chosenCard.id === asterCurrentCard.id) {
+      playClassroomSfx('pop', settings.soundEffectsEnabled);
+      speakVocabulary(chosenCard.word, {
+        audioDataUrl: chosenCard.audioDataUrl,
+        rate: settings.speechRate,
+        accent: settings.voiceAccent,
+      });
+      setAsterLaserActive(activeTeam);
+      setTimeout(() => setAsterLaserActive(null), 600);
+
+      let won = false;
+      if (activeTeam === 'A') {
+        const nextPos = asterPosA + 1;
+        setAsterPosA(nextPos);
+        awardPoints('A', 20);
+        if (nextPos >= 5) won = true;
+      } else {
+        const nextPos = asterPosB + 1;
+        setAsterPosB(nextPos);
+        awardPoints('B', 20);
+        if (nextPos >= 5) won = true;
+      }
+
+      if (won) {
+        setIsFinished(true);
+        triggerCelebration();
+        playClassroomSfx('victory', settings.soundEffectsEnabled);
+        setBannerText(`🚀 PHI THUYỀN ${nextTeamName(activeTeam).toUpperCase()} ĐÃ PHÁ VỠ MỌI THIÊN THẠCH VÀ ĐÁP XUỐNG TRẠM KHÔNG GIAN ĐẦU TIÊN!`);
+      } else {
+        const shuffled = shuffleArray(poolCards);
+        const nextTarget = shuffled[0] || poolCards[0];
+        setAsterCurrentCard(nextTarget);
+        if (nextTarget) {
+          setAsterChoices(buildOptionsForCard(nextTarget, poolCards, 3));
+        }
+        setBannerText(`Bắn hạ thiên thạch thành công! Phi thuyền ${nextTeamName(activeTeam)} tăng tốc tiến về phía trước (+20 điểm)!`);
+      }
+    } else {
+      playClassroomSfx('wrong', settings.soundEffectsEnabled);
+      const nextTeam: TeamKey = activeTeam === 'A' ? 'B' : 'A';
+      setActiveTeam(nextTeam);
+      setBannerText(`Bắn trượt thiên thạch! Chuyển quyền điều khiển phi thuyền sang ${nextTeamName(nextTeam)}.`);
+    }
+  };
+
   const ALL_GAMES: { id: GameKind; number: string; title: string; subtitle: string; icon: string }[] = [
     { id: 'bubble', number: '1', title: 'Bubble Pop', subtitle: 'Bắn Bong Bóng / Trái Cây', icon: '🎈' },
     { id: 'race', number: '2', title: 'Grand Prix', subtitle: 'Đua Xe Đội A vs Đội B', icon: '🏎️' },
@@ -1120,15 +1506,27 @@ export function ClassroomGames({
     { id: 'sentence', number: '12', title: 'Build Sentence', subtitle: 'Xếp Từ Thành Câu', icon: '📝' },
     { id: 'escape', number: '13', title: 'Escape Room', subtitle: 'Phòng Thoát Hiểm', icon: '🗝️' },
     { id: 'memory', number: '14', title: 'Memory Cards', subtitle: 'Lật Bài Trí Nhớ', icon: '🃏' },
+    { id: 'team-race', number: '15', title: 'Quizlet Live Race', subtitle: 'Đua Đội Thú Cưng', icon: '🏁' },
+    { id: 'gimkit-escape', number: '16', title: 'Gimkit One Way Out', subtitle: 'Tàu Vũ Trụ Sinh Tồn', icon: '👾' },
+    { id: 'survey-slam', number: '17', title: 'Survey Game Show', subtitle: 'Đấu Trường Gameshow', icon: '📺' },
+    { id: 'tile-puzzle', number: '18', title: 'Tile Puzzle', subtitle: 'Mảnh Ghép Xoay', icon: '🔲' },
+    { id: 'aster-quiz', number: '19', title: 'AsterQuiz Space', subtitle: 'Bắn Thiên Thạch', icon: '🚀' },
   ];
 
   return (
-    <div className="space-y-6">
+    <div
+      ref={gameContainerRef}
+      className={
+        isFullscreen
+          ? 'fixed inset-0 z-50 overflow-y-auto bg-slate-900 text-slate-100 p-4 md:p-8 space-y-6 backdrop-blur-xl'
+          : 'space-y-6'
+      }
+    >
       {/* Page Header */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
           <p className="text-sm text-slate-500 font-medium">
-            Bộ 14 Trò Chơi Tương Tác Lớp Học (Versus Mode) · Thi Đấu Hai Đội Trên Màn Hình Máy Chiếu
+            Bộ 19 Trò Chơi Tương Tác Lớp Học (Versus Mode) · Thi Đấu Hai Đội Trên Màn Hình Máy Chiếu
           </p>
           <h1 className="mt-1 font-display font-bold text-3xl lg:text-4xl tracking-tight text-slate-900">
             Sân Đấu Trò Chơi Từ Vựng
@@ -1177,6 +1575,30 @@ export function ClassroomGames({
             <RotateCcw className="w-3.5 h-3.5" />
             Chơi lại
           </button>
+
+          {/* Fullscreen Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all shadow-2xs ${
+              isFullscreen
+                ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 font-black ring-2 ring-amber-300'
+                : 'border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+            }`}
+            title={isFullscreen ? 'Thoát toàn màn hình (ESC)' : 'Mở toàn màn hình sân đấu cho máy chiếu'}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize className="w-4 h-4" />
+                <span>✕ Thu nhỏ (ESC)</span>
+              </>
+            ) : (
+              <>
+                <Maximize className="w-4 h-4 text-emerald-700" />
+                <span>⛶ Toàn màn hình</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 
@@ -1185,7 +1607,7 @@ export function ClassroomGames({
         <div className="flex items-center justify-between text-xs font-bold text-slate-600 px-1">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-600" />
-            Danh sách 14 Trò chơi lớp học (Đang chọn: {ALL_GAMES.find((g) => g.id === gameKind)?.title}):
+            Danh sách 19 Trò chơi lớp học (Đang chọn: {ALL_GAMES.find((g) => g.id === gameKind)?.title}):
           </span>
 
           <div className="flex items-center gap-1.5">
@@ -1271,7 +1693,7 @@ export function ClassroomGames({
         ) : (
           /* View Mode 2: EXPANDED GRID VIEW (ALL 14 GAMES VISIBLE AT ONCE) */
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 shadow-xs animate-fade-in">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-2.5">
               {ALL_GAMES.map((tab) => {
                 const isActive = gameKind === tab.id;
                 return (
@@ -1347,8 +1769,18 @@ export function ClassroomGames({
 
           {/* VS Center Banner */}
           <div className="md:col-span-4 text-center px-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-black tracking-widest mb-1.5">
-              <span>⚔️ VERSUS MODE ⚔️</span>
+            <div className="flex items-center justify-center gap-1.5 mb-1.5">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-black tracking-widest">
+                <span>⚔️ VERSUS MODE ⚔️</span>
+              </div>
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="p-1 rounded-full bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-700 transition-colors cursor-pointer"
+                title={isFullscreen ? 'Thu nhỏ (ESC)' : 'Mở toàn màn hình sân đấu'}
+              >
+                {isFullscreen ? <Minimize className="w-3.5 h-3.5 text-amber-600" /> : <Maximize className="w-3.5 h-3.5 text-slate-500" />}
+              </button>
             </div>
             <p className="text-xs font-medium text-slate-700 line-clamp-2 min-h-[32px] flex items-center justify-center">
               {bannerText}
@@ -2423,6 +2855,569 @@ export function ClassroomGames({
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {/* ---------------- 15. QUIZLET LIVE - TEAM RACE ---------------- */}
+        {gameKind === 'team-race' && (
+          <div className="space-y-6 max-w-4xl mx-auto w-full">
+            {/* Header banner */}
+            <div className="p-4 rounded-2xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md border border-slate-700">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">🏁</span>
+                <div>
+                  <h3 className="font-display font-black text-lg text-amber-400">Quizlet Live — Team Race</h3>
+                  <p className="text-xs text-slate-300">Nhóm nào đạt chuỗi 10 điểm trước sẽ về đích xuất sắc!</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">Đang trả lời:</span>
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-white text-slate-900 flex items-center gap-1.5 shadow-2xs">
+                  <span>{teamRaceSquads[activeSquadIdx]?.avatar}</span>
+                  <span>{teamRaceSquads[activeSquadIdx]?.name}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Squads Race Progress Bars (Quizlet Live style) */}
+            <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
+              {teamRaceSquads.map((sq, i) => {
+                const pct = Math.min(100, (sq.score / 10) * 100);
+                const isCurrent = i === activeSquadIdx;
+                return (
+                  <div
+                    key={sq.id}
+                    onClick={() => setActiveSquadIdx(i)}
+                    className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-1.5 ${
+                      isCurrent
+                        ? 'border-indigo-500 bg-indigo-50/40 shadow-xs'
+                        : 'border-slate-100 hover:border-slate-300 bg-slate-50/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{sq.avatar}</span>
+                        <span className="font-extrabold">{sq.name}</span>
+                        {isCurrent && (
+                          <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.2 rounded-full font-bold animate-pulse">
+                            Lượt chơi
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="font-black text-sm text-slate-900">{sq.score}</span>
+                        <span className="text-[10px] text-slate-400">/ 10</span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar Track */}
+                    <div className="w-full h-3.5 bg-slate-200 rounded-full overflow-hidden p-0.5 relative">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 flex items-center justify-end pr-1 text-[9px] font-black text-white ${sq.barColor}`}
+                        style={{ width: `${Math.max(6, pct)}%` }}
+                      >
+                        {sq.score > 0 ? sq.score : ''}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Question Card */}
+            {teamRaceCurrentCard && (
+              <div className="p-6 rounded-2xl bg-white border-2 border-indigo-300 shadow-sm text-center space-y-4">
+                <div className="flex items-center justify-center gap-3">
+                  <span className="text-xs font-bold text-slate-500">
+                    Câu hỏi cho nhóm <span className="text-indigo-600 font-extrabold">{teamRaceSquads[activeSquadIdx]?.name}</span>:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      speakVocabulary(teamRaceCurrentCard.word, {
+                        audioDataUrl: teamRaceCurrentCard.audioDataUrl,
+                        rate: settings.speechRate,
+                        accent: settings.voiceAccent,
+                      })
+                    }
+                    className="p-2 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors shadow-2xs cursor-pointer"
+                    title="Nghe phát âm"
+                  >
+                    <Volume2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {teamRaceCurrentCard.imageDataUrl && (
+                  <div className="w-40 h-32 rounded-xl border border-slate-200 bg-slate-50 p-2 mx-auto flex items-center justify-center">
+                    <ResilientImage
+                      src={teamRaceCurrentCard.imageDataUrl}
+                      alt={teamRaceCurrentCard.word}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                )}
+
+                <p className="text-xs font-semibold text-slate-500">
+                  Ý nghĩa tiếng Việt: <span className="text-slate-900 font-bold">"{teamRaceCurrentCard.meaning}"</span>
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto pt-2">
+                  {teamRaceChoices.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => handleTeamRaceAnswer(c)}
+                      className="py-3 px-4 rounded-xl border-2 border-slate-200 bg-white hover:border-indigo-500 hover:bg-indigo-50 font-bold text-sm text-slate-800 shadow-xs transition-all cursor-pointer text-center"
+                    >
+                      {c.word}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ---------------- 16. GIMKIT - ONE WAY OUT ---------------- */}
+        {gameKind === 'gimkit-escape' && (
+          <div className="space-y-6 max-w-4xl mx-auto w-full">
+            {/* Mission HUD Header */}
+            <div className="p-5 rounded-2xl bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 text-white border-2 border-purple-500/40 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl animate-bounce">👾</span>
+                  <div>
+                    <h3 className="font-display font-black text-xl text-purple-300 tracking-wide">
+                      GIMKIT — ONE WAY OUT
+                    </h3>
+                    <p className="text-xs text-purple-200">
+                      Sinh vật lạ đang chiếm giữ tàu! Trả lời đúng để nạp năng lượng & thu thập chìa khóa thoát hiểm.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {/* Energy Meter */}
+                  <div className="text-right">
+                    <div className="text-[10px] text-amber-300 font-bold uppercase tracking-wider flex items-center gap-1 justify-end">
+                      <Zap className="w-3 h-3 text-amber-400" />
+                      Năng lượng
+                    </div>
+                    <div className="font-black text-lg text-amber-400 tabular-nums">{gimkitEnergy}%</div>
+                  </div>
+
+                  {/* Keys Collected */}
+                  <div className="text-right border-l border-purple-800 pl-3">
+                    <div className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider flex items-center gap-1 justify-end">
+                      <Key className="w-3 h-3 text-emerald-400" />
+                      Chìa khóa
+                    </div>
+                    <div className="font-black text-lg text-emerald-400 tabular-nums">{gimkitKeys} / 3</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Energy Progress Bar */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-[11px] text-purple-300 font-semibold">
+                  <span>Tiến độ khoang hiện tại (#{gimkitRoomIndex + 1})</span>
+                  <span>{gimkitEnergy}% (Cần 100% để lấy chìa khóa)</span>
+                </div>
+                <div className="w-full h-3 bg-purple-950/80 rounded-full border border-purple-600/50 p-0.5 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-500 shadow-sm"
+                    style={{ width: `${Math.max(4, gimkitEnergy)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* 3 Key slots visual */}
+              <div className="grid grid-cols-3 gap-2.5 pt-1">
+                {[1, 2, 3].map((slot) => {
+                  const hasKey = gimkitKeys >= slot;
+                  return (
+                    <div
+                      key={slot}
+                      className={`p-2 rounded-xl border text-center text-xs font-bold flex items-center justify-center gap-2 ${
+                        hasKey
+                          ? 'border-emerald-400 bg-emerald-950/60 text-emerald-300'
+                          : 'border-purple-800 bg-purple-950/30 text-purple-400'
+                      }`}
+                    >
+                      <span>{hasKey ? '🔑' : '🔒'}</span>
+                      <span>Chìa khóa #{slot}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Question Stage */}
+            {gimkitCurrentCard && (
+              <div className="p-6 rounded-2xl bg-white border-2 border-purple-200 shadow-sm text-center space-y-4">
+                <div className="w-40 h-32 rounded-xl border border-slate-200 bg-slate-50 p-2 mx-auto flex items-center justify-center">
+                  <ResilientImage
+                    src={gimkitCurrentCard.imageDataUrl}
+                    alt={gimkitCurrentCard.word}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-xs font-bold text-slate-500 mb-1">
+                    Lượt của <span className="text-purple-700 font-extrabold">{nextTeamName(activeTeam)}</span>: Chọn từ vựng đúng để kích hoạt nguồn năng lượng:
+                  </p>
+                  <p className="text-sm font-black text-slate-900">
+                    "{gimkitCurrentCard.meaning}"
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto pt-2">
+                  {gimkitChoices.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => handleGimkitAnswer(c)}
+                      className="py-3 px-4 rounded-xl border-2 border-slate-200 bg-white hover:border-purple-500 hover:bg-purple-50 font-bold text-sm text-slate-800 shadow-xs transition-all cursor-pointer text-center"
+                    >
+                      ⚡ {c.word}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ---------------- 17. FLIPPITY - SURVEY SLAM / GAME SHOW ---------------- */}
+        {gameKind === 'survey-slam' && (
+          <div className="space-y-6 max-w-4xl mx-auto w-full">
+            {/* Game Show Studio Board */}
+            <div className="p-5 rounded-2xl bg-gradient-to-b from-blue-900 via-indigo-950 to-slate-950 text-white border-4 border-amber-400 shadow-2xl space-y-4 text-center">
+              <div className="flex items-center justify-between pb-2 border-b border-indigo-800">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">📺</span>
+                  <span className="font-display font-black text-lg text-amber-300 uppercase tracking-widest">
+                    Family Feud & Game Show Board
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-xs font-bold">
+                  <span className="text-rose-400">Strikes:</span>
+                  {[1, 2, 3].map((s) => (
+                    <span
+                      key={s}
+                      className={`w-6 h-6 rounded-full flex items-center justify-center font-black ${
+                        surveyStrikes >= s ? 'bg-rose-600 text-white animate-bounce' : 'bg-slate-800 text-slate-600'
+                      }`}
+                    >
+                      ✕
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Game Show Matrix Cards */}
+              <div className="grid grid-cols-3 gap-3.5 p-2">
+                {surveyItems.map((item) => {
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleOpenSurveyItem(item)}
+                      disabled={item.isRevealed}
+                      className={`aspect-[4/3] rounded-2xl border-2 p-3 flex flex-col items-center justify-center transition-all cursor-pointer shadow-md ${
+                        item.isRevealed
+                          ? item.awardedTo === 'A'
+                            ? 'border-sky-400 bg-sky-950/80 text-sky-200'
+                            : 'border-rose-400 bg-rose-950/80 text-rose-200'
+                          : 'border-amber-400/80 bg-gradient-to-b from-blue-700 to-indigo-800 hover:from-blue-600 hover:to-indigo-700 hover:scale-102 hover:border-amber-300'
+                      }`}
+                    >
+                      {item.isRevealed ? (
+                        <div className="flex flex-col items-center justify-center gap-1 text-center">
+                          <span className="text-xs font-black text-amber-300">+{item.points} ĐIỂM</span>
+                          <span className="font-extrabold text-sm text-white">{item.card.word}</span>
+                          <span className="text-[10px] text-slate-300">{item.card.meaning}</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center gap-1">
+                          <span className="font-display font-black text-2xl text-amber-300 drop-shadow-md">
+                            ${item.points}
+                          </span>
+                          <span className="text-[10px] text-indigo-200 uppercase tracking-widest font-bold">
+                            Chạm để mở
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Active Survey Item Question Popup / Control */}
+            {activeSurveyItem && (
+              <div className="p-6 rounded-2xl bg-white border-2 border-amber-400 shadow-xl text-center space-y-4 max-w-lg mx-auto animate-fade-in">
+                <span className="inline-block px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 uppercase">
+                  Thử thách ô ${activeSurveyItem.points}
+                </span>
+
+                <div className="w-40 h-32 rounded-xl border border-slate-200 bg-slate-50 p-2 mx-auto flex items-center justify-center">
+                  <ResilientImage
+                    src={activeSurveyItem.card.imageDataUrl}
+                    alt={activeSurveyItem.card.word}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-xs text-slate-500 font-semibold mb-1">
+                    Gợi ý nghĩa tiếng Việt: <span className="font-bold text-slate-800">"{activeSurveyItem.card.meaning}"</span>
+                  </p>
+                  <p className="text-lg font-black text-indigo-900">
+                    Đáp án: <span className="text-emerald-700">{activeSurveyItem.card.word}</span>
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSurveyMarkResult(true)}
+                    className="py-2.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    Chính xác (+{activeSurveyItem.points} điểm)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSurveyMarkResult(false)}
+                    className="py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <X className="w-4 h-4" />
+                    Báo sai (Strike ✕)
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ---------------- 18. FLIPPITY - TILE PUZZLE ---------------- */}
+        {gameKind === 'tile-puzzle' && (
+          <div className="space-y-6 max-w-4xl mx-auto w-full">
+            <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">🔲</span>
+                <div>
+                  <h3 className="font-display font-black text-base text-indigo-950">Flippity — Tile Puzzle</h3>
+                  <p className="text-xs text-indigo-700">
+                    Bấm nút "Xoay" hoặc bấm 2 ô để hoán đổi vị trí sao cho toàn bộ các cạnh khớp đúng 0°!
+                  </p>
+                </div>
+              </div>
+
+              <span className="text-xs font-bold text-indigo-900 bg-white px-3 py-1 rounded-full border border-indigo-200 shadow-2xs">
+                {puzzleTiles.filter((t) => t.rotation === 0).length} / {puzzleTiles.length} ô đã khớp
+              </span>
+            </div>
+
+            {/* Puzzle Tiles Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-100 rounded-3xl border border-slate-300">
+              {puzzleTiles.map((tile, idx) => {
+                const isSelected = selectedPuzzleIdx === idx;
+                const isAligned = tile.rotation === 0;
+
+                return (
+                  <div
+                    key={tile.id}
+                    className={`rounded-2xl border-2 p-3 bg-white transition-all duration-300 shadow-xs flex flex-col justify-between gap-2.5 ${
+                      isAligned
+                        ? 'border-emerald-500 bg-emerald-50/30'
+                        : isSelected
+                        ? 'border-indigo-600 ring-2 ring-indigo-400 bg-indigo-50/20'
+                        : 'border-slate-300 hover:border-indigo-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
+                      <span>Mảnh #{idx + 1}</span>
+                      <span className={`px-2 py-0.5 rounded-full font-black ${isAligned ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                        {tile.rotation}°
+                      </span>
+                    </div>
+
+                    <div
+                      className="w-full aspect-square rounded-xl bg-slate-50 border border-slate-200 p-2 flex items-center justify-center transition-transform duration-300 overflow-hidden"
+                      style={{ transform: `rotate(${tile.rotation}deg)` }}
+                    >
+                      <ResilientImage
+                        src={tile.card.imageDataUrl}
+                        alt={tile.card.word}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+
+                    <div className="text-center">
+                      <div className="font-extrabold text-sm text-slate-900">{tile.card.word}</div>
+                      <div className="text-[11px] text-slate-500">{tile.card.meaning}</div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleRotatePuzzleTile(idx)}
+                        className="flex-1 py-1.5 px-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                        title="Xoay 90 độ"
+                      >
+                        <RotateCw className="w-3.5 h-3.5" />
+                        <span>Xoay</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSwapPuzzleTile(idx)}
+                        className={`py-1.5 px-2.5 rounded-lg font-bold text-xs border cursor-pointer ${
+                          isSelected
+                            ? 'bg-amber-500 text-slate-950 border-amber-600'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
+                        }`}
+                        title="Đổi chỗ mảnh"
+                      >
+                        {isSelected ? 'Đang chọn' : 'Đổi'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- 19. EDUCAPLAY - ASTERQUIZ ---------------- */}
+        {gameKind === 'aster-quiz' && (
+          <div className="space-y-6 max-w-4xl mx-auto w-full">
+            {/* Cosmic Race Arena */}
+            <div className="p-6 rounded-3xl bg-gradient-to-b from-indigo-950 via-slate-900 to-purple-950 text-white border-2 border-indigo-500/40 shadow-2xl space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-indigo-800">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-3xl">🚀</span>
+                  <div>
+                    <h3 className="font-display font-black text-xl text-amber-300">Educaplay — AsterQuiz</h3>
+                    <p className="text-xs text-indigo-200">Bắn hạ thiên thạch để điều khiển tàu vũ trụ vượt qua dải ngân hà!</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
+                  <span>Trạm đích: 🪐 Trạm Vũ Trụ Không Gian</span>
+                </div>
+              </div>
+
+              {/* Lane A: Blue Spaceship */}
+              <div className="space-y-2 p-3.5 rounded-2xl bg-indigo-900/40 border border-sky-500/30">
+                <div className="flex items-center justify-between text-xs font-bold text-sky-300">
+                  <span className="flex items-center gap-1.5">
+                    <Rocket className="w-4 h-4 text-sky-400" />
+                    {settings.teamAName} (Phi thuyền Xanh)
+                  </span>
+                  <span>Chặng {asterPosA} / 5</span>
+                </div>
+
+                {/* Track with stations */}
+                <div className="relative w-full h-8 bg-slate-950 rounded-full border border-sky-800 flex items-center px-2">
+                  <div
+                    className="absolute transition-all duration-700 flex items-center gap-1"
+                    style={{ left: `${Math.min(92, (asterPosA / 5) * 88)}%` }}
+                  >
+                    <span className="text-xl">🚀</span>
+                    {asterLaserActive === 'A' && (
+                      <span className="text-xs font-black text-amber-400 animate-ping">⚡ LASER!</span>
+                    )}
+                  </div>
+                  <div className="w-full flex justify-between text-xs opacity-60 px-2 pointer-events-none">
+                    <span>☄️</span>
+                    <span>☄️</span>
+                    <span>☄️</span>
+                    <span>☄️</span>
+                    <span>🪐</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lane B: Red Spaceship */}
+              <div className="space-y-2 p-3.5 rounded-2xl bg-purple-900/40 border border-rose-500/30">
+                <div className="flex items-center justify-between text-xs font-bold text-rose-300">
+                  <span className="flex items-center gap-1.5">
+                    <Rocket className="w-4 h-4 text-rose-400" />
+                    {settings.teamBName} (Phi thuyền Đỏ)
+                  </span>
+                  <span>Chặng {asterPosB} / 5</span>
+                </div>
+
+                {/* Track with stations */}
+                <div className="relative w-full h-8 bg-slate-950 rounded-full border border-rose-800 flex items-center px-2">
+                  <div
+                    className="absolute transition-all duration-700 flex items-center gap-1"
+                    style={{ left: `${Math.min(92, (asterPosB / 5) * 88)}%` }}
+                  >
+                    <span className="text-xl">🛸</span>
+                    {asterLaserActive === 'B' && (
+                      <span className="text-xs font-black text-amber-400 animate-ping">⚡ LASER!</span>
+                    )}
+                  </div>
+                  <div className="w-full flex justify-between text-xs opacity-60 px-2 pointer-events-none">
+                    <span>☄️</span>
+                    <span>☄️</span>
+                    <span>☄️</span>
+                    <span>☄️</span>
+                    <span>🪐</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Current Asteroid Target */}
+              {asterCurrentCard && (
+                <div className="p-5 rounded-2xl bg-slate-950/80 border border-amber-400/40 text-center space-y-4">
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-xs text-amber-300 font-bold uppercase tracking-wider">
+                      ☄️ THIÊN THẠCH PHÍA TRƯỚC ĐANG CẢN ĐƯỜNG:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        speakVocabulary(asterCurrentCard.word, {
+                          audioDataUrl: asterCurrentCard.audioDataUrl,
+                          rate: settings.speechRate,
+                          accent: settings.voiceAccent,
+                        })
+                      }
+                      className="p-1.5 rounded-full bg-amber-400 text-slate-950 hover:bg-amber-300 transition-colors shadow-sm cursor-pointer"
+                      title="Phát âm từ vựng"
+                    >
+                      <Volume2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <p className="text-base font-extrabold text-white">
+                    Ý nghĩa: <span className="text-amber-400">"{asterCurrentCard.meaning}"</span>
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl mx-auto pt-2">
+                    {asterChoices.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleAsterQuizAnswer(c)}
+                        className="py-3 px-4 rounded-xl border border-amber-400/60 bg-gradient-to-r from-indigo-900 to-purple-900 hover:from-amber-500 hover:to-amber-600 hover:text-slate-950 font-black text-sm text-amber-200 shadow-md transition-all cursor-pointer text-center"
+                      >
+                        ☄️ {c.word}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

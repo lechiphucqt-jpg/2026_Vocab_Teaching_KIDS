@@ -14,7 +14,12 @@ export type GameKind =
   | 'escape'
   | 'memory'
   | 'bubble'
-  | 'scramble';
+  | 'scramble'
+  | 'team-race'
+  | 'gimkit-escape'
+  | 'survey-slam'
+  | 'tile-puzzle'
+  | 'aster-quiz';
 
 export type AIModelId = 'gemini-3-flash-preview' | 'gemini-3-pro-preview' | 'gemini-2.5-flash';
 
